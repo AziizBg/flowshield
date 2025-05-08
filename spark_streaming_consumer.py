@@ -2,14 +2,18 @@ from pyspark import SparkContext
 from pyspark.streaming import StreamingContext
 import json
 import datetime
-import reverse_geocoder as rg
-import pycountry
 
+# Create Spark context
 sc = SparkContext(appName="EarthquakeStream")
 ssc = StreamingContext(sc, 10)  # 10-second batches
 
+# Enable checkpointing for stateful operations
+ssc.checkpoint("hdfs:///checkpoints/earthquake_stream")
+
+# Stream from socket
 lines = ssc.socketTextStream("host.docker.internal", 9999)
 
+# Function to determine fire severity
 def get_fire_severity(frp):
     if frp < 5:
         return "Low"
@@ -18,14 +22,18 @@ def get_fire_severity(frp):
     else:
         return "High"
 
-def categorize_event(record):
+# Parse and categorize each event
+def parse_event(record):
     try:
         event = json.loads(record)
+        event_id = event.get("id")
+        if not event_id:
+            return (None, None)
 
         if event.get("type") == "fire":
             severity = get_fire_severity(float(event.get("frp")))
             fire = {
-                "id": event.get("id"),
+                "id": event_id,
                 "time": event.get("time"),
                 "frp": event.get("frp"),
                 "severity": severity,
@@ -35,13 +43,13 @@ def categorize_event(record):
                 "latitude": event.get("latitude"),
                 "longitude": event.get("longitude"),
             }
-            return ("fire", json.dumps(fire))
+            return (event_id, ("fire", json.dumps(fire)))
 
         elif event.get("type") == "earthquake":
             place = event.get("place", "")
             city, country = place.split(",") if "," in place else (place, "Unknown")
             quake = {
-                "id": event.get("id"),
+                "id": event_id,
                 "time": event.get("time"),
                 "magnitude": event.get("magnitude"),
                 "city": city.strip(),
@@ -52,29 +60,43 @@ def categorize_event(record):
                 "status": event.get("status"),
                 "magType": event.get("magType")
             }
-            return ("earthquake", json.dumps(quake))
+            return (event_id, ("earthquake", json.dumps(quake)))
 
         else:
-            return ("others", json.dumps(event))
+            return (event_id, ("others", json.dumps(event)))
 
     except Exception as e:
-        error = {
-            "error": str(e),
-            "record": record
-        }
-        return ("error", json.dumps(error))
+        return ("error_" + str(hash(record)), ("error", json.dumps({"error": str(e), "record": record})))
 
+# Stateful deduplication: track if the ID has been seen
+def update_state(new_values, last_state):
+    if last_state is not None:
+        return (last_state[0], False)  # Already seen
+    elif new_values:
+        return (new_values[0], True)   # First time seen
+    return (None, False)
+
+# Apply transformations
+parsed_lines = lines.map(parse_event).filter(lambda x: x[0] is not None)
+
+# Use updateStateByKey to track seen IDs and detect new ones
+tracked_state = parsed_lines.updateStateByKey(update_state)
+
+# Filter only newly seen events
+new_events = tracked_state.filter(lambda x: x[1][1] is True).map(lambda x: x[1][0])
+
+# Save categorized and filtered events
 def save_partitioned(rdd):
     if not rdd.isEmpty():
         timestamp = datetime.datetime.utcnow().strftime("%Y%m%d%H%M%S")
-        categorized = rdd.map(categorize_event)
-
         for event_type in ["fire", "earthquake", "others", "error"]:
-            filtered = categorized.filter(lambda x: x[0] == event_type).map(lambda x: x[1])
+            filtered = rdd.filter(lambda x: x[0] == event_type).map(lambda x: x[1])
             if not filtered.isEmpty():
                 filtered.saveAsTextFile(f"hdfs:///events/{event_type}/{timestamp}")
 
-lines.foreachRDD(save_partitioned)
+# Write output
+new_events.foreachRDD(save_partitioned)
 
+# Start streaming
 ssc.start()
 ssc.awaitTermination()
