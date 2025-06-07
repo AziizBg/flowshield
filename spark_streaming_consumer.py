@@ -31,6 +31,11 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# HDFS configuration
+HDFS_HOST = "hadoop-master"
+HDFS_PORT = "9000"
+HDFS_BASE_PATH = f"hdfs://{HDFS_HOST}:{HDFS_PORT}"
+
 # Create Spark session with Kafka connector
 logger.info("Initializing Spark session...")
 spark = SparkSession.builder \
@@ -39,8 +44,9 @@ spark = SparkSession.builder \
     .getOrCreate()
 
 # Enable checkpointing for fault tolerance
-logger.info("Setting up checkpoint directory...")
-spark.sparkContext.setCheckpointDir("hdfs:///checkpoints/earthquake_stream")
+checkpoint_dir = f"{HDFS_BASE_PATH}/checkpoints/earthquake_stream"
+logger.info(f"Setting up checkpoint directory: {checkpoint_dir}")
+spark.sparkContext.setCheckpointDir(checkpoint_dir)
 
 # Kafka configuration
 KAFKA_BOOTSTRAP_SERVERS = 'localhost:9092'  # Kafka broker address
@@ -111,20 +117,24 @@ fire_events = fire_stream \
     .dropDuplicates(["id"])
 
 # Write earthquake events to HDFS
-logger.info("Setting up earthquake events write stream...")
+earthquake_output_path = f"{HDFS_BASE_PATH}/events/earthquake"
+earthquake_checkpoint_path = f"{HDFS_BASE_PATH}/checkpoints/earthquake_stream/earthquake"
+logger.info(f"Setting up earthquake events write stream to: {earthquake_output_path}")
 earthquake_query = earthquake_events.writeStream \
     .format("json") \
-    .option("path", "hdfs:///events/earthquake") \
-    .option("checkpointLocation", "hdfs:///checkpoints/earthquake_stream/earthquake") \
+    .option("path", earthquake_output_path) \
+    .option("checkpointLocation", earthquake_checkpoint_path) \
     .trigger(processingTime='10 seconds') \
     .start()
 
 # Write fire events to HDFS
-logger.info("Setting up fire events write stream...")
+fire_output_path = f"{HDFS_BASE_PATH}/events/fire"
+fire_checkpoint_path = f"{HDFS_BASE_PATH}/checkpoints/earthquake_stream/fire"
+logger.info(f"Setting up fire events write stream to: {fire_output_path}")
 fire_query = fire_events.writeStream \
     .format("json") \
-    .option("path", "hdfs:///events/fire") \
-    .option("checkpointLocation", "hdfs:///checkpoints/earthquake_stream/fire") \
+    .option("path", fire_output_path) \
+    .option("checkpointLocation", fire_checkpoint_path) \
     .trigger(processingTime='10 seconds') \
     .start()
 
