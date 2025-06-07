@@ -16,6 +16,14 @@ import json
 import time
 from earthquakes import fetch_earthquakes
 from fires import fetch_fires
+import logging
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
 # Kafka configuration
 KAFKA_BOOTSTRAP_SERVERS = 'localhost:9092'  # Kafka broker address
@@ -33,10 +41,17 @@ def create_kafka_producer():
     Returns:
         KafkaProducer: Configured Kafka producer instance
     """
-    return KafkaProducer(
-        bootstrap_servers=KAFKA_BOOTSTRAP_SERVERS,
-        value_serializer=lambda v: json.dumps(v).encode('utf-8')
-    )
+    try:
+        logger.info(f"Attempting to connect to Kafka at {KAFKA_BOOTSTRAP_SERVERS}")
+        producer = KafkaProducer(
+            bootstrap_servers=KAFKA_BOOTSTRAP_SERVERS,
+            value_serializer=lambda v: json.dumps(v).encode('utf-8')
+        )
+        logger.info("Successfully created Kafka producer")
+        return producer
+    except Exception as e:
+        logger.error(f"Failed to create Kafka producer: {e}")
+        raise
 
 def start_producer():
     """
@@ -52,32 +67,51 @@ def start_producer():
     
     The function includes error handling and will retry after 5 seconds if an error occurs.
     """
-    producer = create_kafka_producer()
-    print(f"[Kafka] Producer started, connected to {KAFKA_BOOTSTRAP_SERVERS}")
-    
-    while True:
-        try:
-            # Fetch and publish earthquake data
-            print("[Kafka] Sending earthquake data...")
-            quakes = fetch_earthquakes()
-            for event in quakes:
-                producer.send(EARTHQUAKE_TOPIC, value=event)
-                print(f"[Kafka] Sent earthquake: {event['id']}")
-
-            # Fetch and publish fire data
-            print("[Kafka] Sending fire data...")
-            fires = fetch_fires()
-            for fire in fires:
-                producer.send(FIRE_TOPIC, value=fire)
-                print(f"[Kafka] Sent fire: {fire['id']}")
+    try:
+        logger.info("Starting producer...")
+        producer = create_kafka_producer()
+        logger.info(f"Producer started, connected to {KAFKA_BOOTSTRAP_SERVERS}")
+        
+        while True:
+            try:
+                # Fetch and publish earthquake data
+                logger.info("Fetching earthquake data...")
+                quakes = fetch_earthquakes()
+                logger.info(f"Fetched {len(quakes)} earthquake events")
                 
-            # Ensure all messages are sent before waiting
-            producer.flush()
-            time.sleep(60)  # Wait for 1 minute before next iteration
-            
-        except Exception as e:
-            print(f"[Kafka] Error: {e}")
-            time.sleep(5)  # Wait 5 seconds before retrying on error
+                for event in quakes:
+                    producer.send(EARTHQUAKE_TOPIC, value=event)
+                    logger.info(f"Sent earthquake: {event['id']}")
+
+                # Fetch and publish fire data
+                logger.info("Fetching fire data...")
+                fires = fetch_fires()
+                logger.info(f"Fetched {len(fires)} fire events")
+                
+                for fire in fires:
+                    producer.send(FIRE_TOPIC, value=fire)
+                    logger.info(f"Sent fire: {fire['id']}")
+                    
+                # Ensure all messages are sent before waiting
+                producer.flush()
+                logger.info("Waiting 60 seconds before next iteration...")
+                time.sleep(60)
+                
+            except Exception as e:
+                logger.error(f"Error in main loop: {e}")
+                logger.info("Waiting 5 seconds before retrying...")
+                time.sleep(5)
+                
+    except Exception as e:
+        logger.error(f"Fatal error in producer: {e}")
+        raise
 
 if __name__ == "__main__":
-    start_producer()
+    try:
+        logger.info("Starting producer script...")
+        start_producer()
+    except KeyboardInterrupt:
+        logger.info("Producer stopped by user")
+    except Exception as e:
+        logger.error(f"Producer stopped due to error: {e}")
+        raise
