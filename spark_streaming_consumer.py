@@ -18,7 +18,7 @@ Key features:
 """
 
 from pyspark.sql import SparkSession
-from pyspark.sql.functions import from_json, col, expr, struct, lit, to_json
+from pyspark.sql.functions import from_json, col, expr, struct, lit, to_json, count
 from pyspark.sql.types import StructType, StructField, StringType, DoubleType, TimestampType
 import json
 import datetime
@@ -79,14 +79,24 @@ fire_schema = StructType([
 # Create Kafka streams for both topics
 def create_kafka_stream(topic, schema):
     logger.info(f"Creating Kafka stream for topic: {topic}")
-    return spark.readStream \
+    stream = spark.readStream \
         .format("kafka") \
         .option("kafka.bootstrap.servers", KAFKA_BOOTSTRAP_SERVERS) \
         .option("subscribe", topic) \
         .option("startingOffsets", "latest") \
-        .load() \
-        .select(from_json(col("value").cast("string"), schema).alias("data")) \
+        .load()
+    
+    # Log the raw data count
+    logger.info(f"Raw data count for {topic}: {stream.count()}")
+    
+    # Parse the JSON data
+    parsed_stream = stream.select(from_json(col("value").cast("string"), schema).alias("data")) \
         .select("data.*")
+    
+    # Log the parsed data count
+    logger.info(f"Parsed data count for {topic}: {parsed_stream.count()}")
+    
+    return parsed_stream
 
 # Create streams
 logger.info("Initializing Kafka streams...")
@@ -104,6 +114,9 @@ earthquake_events = earthquake_stream \
     .withColumn("longitude", lit(None).cast(DoubleType())) \
     .dropDuplicates(["id"])
 
+# Log earthquake event count
+logger.info(f"Processed earthquake events count: {earthquake_events.count()}")
+
 # Process fire stream
 logger.info("Processing fire stream...")
 fire_events = fire_stream \
@@ -116,26 +129,35 @@ fire_events = fire_stream \
     .withColumn("magType", lit(None).cast(StringType())) \
     .dropDuplicates(["id"])
 
+# Log fire event count
+logger.info(f"Processed fire events count: {fire_events.count()}")
+
 # Write earthquake events to HDFS
 earthquake_output_path = f"{HDFS_BASE_PATH}/events/earthquake"
 earthquake_checkpoint_path = f"{HDFS_BASE_PATH}/checkpoints/earthquake_stream/earthquake"
 logger.info(f"Setting up earthquake events write stream to: {earthquake_output_path}")
+
+# Add a query name for better monitoring
 earthquake_query = earthquake_events.writeStream \
     .format("json") \
     .option("path", earthquake_output_path) \
     .option("checkpointLocation", earthquake_checkpoint_path) \
     .trigger(processingTime='10 seconds') \
+    .queryName("earthquake_stream") \
     .start()
 
 # Write fire events to HDFS
 fire_output_path = f"{HDFS_BASE_PATH}/events/fire"
 fire_checkpoint_path = f"{HDFS_BASE_PATH}/checkpoints/earthquake_stream/fire"
 logger.info(f"Setting up fire events write stream to: {fire_output_path}")
+
+# Add a query name for better monitoring
 fire_query = fire_events.writeStream \
     .format("json") \
     .option("path", fire_output_path) \
     .option("checkpointLocation", fire_checkpoint_path) \
     .trigger(processingTime='10 seconds') \
+    .queryName("fire_stream") \
     .start()
 
 logger.info("Starting streaming queries...")
