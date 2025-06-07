@@ -1,9 +1,28 @@
 from geopy.geocoders import Nominatim
+from geopy.exc import GeocoderTimedOut
 import pycountry
+import logging
+from functools import lru_cache
+import time
 
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+
+# Initialize geocoder with longer timeout
+geolocator = Nominatim(
+    user_agent="flowshield",
+    timeout=10  # 10 seconds timeout
+)
+
+@lru_cache(maxsize=1000)
 def get_location_info(lat, lon):
     """
     Get city and country information from latitude and longitude coordinates.
+    Uses caching to avoid repeated lookups for the same coordinates.
     
     Args:
         lat (float): Latitude
@@ -13,19 +32,37 @@ def get_location_info(lat, lon):
         tuple: (city, country) names
     """
     try:
-        # Initialize Nominatim geocoder
-        geolocator = Nominatim(user_agent="flowshield")
-        # Reverse geocode the coordinates
-        location = geolocator.reverse(f"{lat}, {lon}", language='en')
+        # Round coordinates to 3 decimal places for caching
+        lat_rounded = round(float(lat), 3)
+        lon_rounded = round(float(lon), 3)
         
-        if location and location.raw:
-            address = location.raw.get('address', {})
-            city = address.get('city') or address.get('town') or address.get('village') or "Unknown"
-            country = address.get('country') or "Unknown"
-            return city, country
-        return "Unknown", "Unknown"
+        # Try to get location with retries
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                location = geolocator.reverse(
+                    f"{lat_rounded}, {lon_rounded}",
+                    language='en',
+                    timeout=10
+                )
+                
+                if location and location.raw:
+                    address = location.raw.get('address', {})
+                    city = address.get('city') or address.get('town') or address.get('village') or "Unknown"
+                    country = address.get('country') or "Unknown"
+                    return city, country
+                return "Unknown", "Unknown"
+                
+            except GeocoderTimedOut:
+                if attempt < max_retries - 1:
+                    logger.warning(f"Geocoding timeout, retrying... (Attempt {attempt + 1}/{max_retries})")
+                    time.sleep(1)  # Wait before retry
+                    continue
+                logger.warning(f"Geocoding failed after {max_retries} attempts")
+                return "Unknown", "Unknown"
+                
     except Exception as e:
-        print(f"Error in geocoding: {e}")
+        logger.warning(f"Error in geocoding: {e}")
         return "Unknown", "Unknown"
 
 def get_fire_severity(frp):
