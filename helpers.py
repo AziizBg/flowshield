@@ -1,9 +1,6 @@
 import reverse_geocoder as rg
 import pycountry
 
-# Initialize the reverse_geocoder database
-rg.init()
-
 def get_location_info(lat, lon):
     """
     Get city and country information from latitude and longitude coordinates.
@@ -17,7 +14,8 @@ def get_location_info(lat, lon):
     """
     try:
         # Search for location information
-        result = rg.search((lat, lon), mode=1)[0]
+        coordinates = (float(lat), float(lon))
+        result = rg.search(coordinates)[0]
         city = result['name']
         country_code = result['cc']
         country = pycountry.countries.get(alpha_2=country_code)
