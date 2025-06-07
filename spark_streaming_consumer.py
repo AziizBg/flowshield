@@ -1,20 +1,64 @@
+"""
+Earthquake and Fire Data Consumer using Spark Streaming and Kafka
+
+This script consumes earthquake and fire data from Kafka topics, processes them using Spark Streaming,
+and saves the results to HDFS. It implements deduplication and categorization of events.
+
+The consumer:
+1. Reads from two Kafka topics: 'earthquakes' and 'fires'
+2. Processes each stream separately based on its type
+3. Deduplicates events using stateful processing
+4. Saves categorized events to HDFS
+
+Key features:
+- Real-time processing using Spark Streaming
+- Stateful deduplication of events
+- Separate processing for each event type
+- HDFS storage with timestamp-based partitioning
+"""
+
 from pyspark import SparkContext
 from pyspark.streaming import StreamingContext
+from pyspark.streaming.kafka import KafkaUtils
 import json
 import datetime
 
-# Create Spark context
+# Create Spark context with application name
 sc = SparkContext(appName="EarthquakeStream")
-ssc = StreamingContext(sc, 10)  # 10-second batches
+# Create StreamingContext with 10-second batch interval
+ssc = StreamingContext(sc, 10)
 
-# Enable checkpointing for stateful operations
+# Enable checkpointing for fault tolerance and stateful operations
 ssc.checkpoint("hdfs:///checkpoints/earthquake_stream")
 
-# Stream from socket
-lines = ssc.socketTextStream("host.docker.internal", 9999)
+# Kafka configuration
+KAFKA_BOOTSTRAP_SERVERS = 'localhost:9092'  # Kafka broker address
+EARTHQUAKE_TOPIC = 'earthquakes'            # Topic for earthquake events
+FIRE_TOPIC = 'fires'                        # Topic for fire events
 
-# Function to determine fire severity
+# Create Kafka streams for both topics
+earthquake_stream = KafkaUtils.createDirectStream(
+    ssc,
+    [EARTHQUAKE_TOPIC],
+    {"bootstrap.servers": KAFKA_BOOTSTRAP_SERVERS}
+)
+
+fire_stream = KafkaUtils.createDirectStream(
+    ssc,
+    [FIRE_TOPIC],
+    {"bootstrap.servers": KAFKA_BOOTSTRAP_SERVERS}
+)
+
 def get_fire_severity(frp):
+    """
+    Determines the severity level of a fire based on its Fire Radiative Power (FRP).
+    
+    Args:
+        frp (float): Fire Radiative Power value
+        
+    Returns:
+        str: Severity level ('Low', 'Moderate', or 'High')
+    """
     if frp < 5:
         return "Low"
     elif frp < 15:
@@ -22,81 +66,138 @@ def get_fire_severity(frp):
     else:
         return "High"
 
-# Parse and categorize each event
-def parse_event(record):
+def parse_earthquake(record):
+    """
+    Parses an earthquake event from Kafka.
+    
+    Args:
+        record (tuple): Kafka message as (key, value) pair
+        
+    Returns:
+        tuple: (event_id, json_string) or (None, None) for invalid events
+    """
     try:
-        event = json.loads(record)
+        event = json.loads(record[1])
         event_id = event.get("id")
         if not event_id:
             return (None, None)
 
-        if event.get("type") == "fire":
-            severity = get_fire_severity(float(event.get("frp")))
-            fire = {
-                "id": event_id,
-                "time": event.get("time"),
-                "frp": event.get("frp"),
-                "severity": severity,
-                "city": event.get("city"),
-                "country": event.get("country"),
-                "type": event.get("type"),
-                "latitude": event.get("latitude"),
-                "longitude": event.get("longitude"),
-            }
-            return (event_id, ("fire", json.dumps(fire)))
-
-        elif event.get("type") == "earthquake":
-            place = event.get("place", "")
-            city, country = place.split(",") if "," in place else (place, "Unknown")
-            quake = {
-                "id": event_id,
-                "time": event.get("time"),
-                "magnitude": event.get("magnitude"),
-                "city": city.strip(),
-                "country": country.strip(),
-                "place": event.get("place"),
-                "url": event.get("url"),
-                "type": event.get("type"),
-                "status": event.get("status"),
-                "magType": event.get("magType")
-            }
-            return (event_id, ("earthquake", json.dumps(quake)))
-
-        else:
-            return (event_id, ("others", json.dumps(event)))
+        place = event.get("place", "")
+        city, country = place.split(",") if "," in place else (place, "Unknown")
+        quake = {
+            "id": event_id,
+            "time": event.get("time"),
+            "magnitude": event.get("magnitude"),
+            "city": city.strip(),
+            "country": country.strip(),
+            "place": event.get("place"),
+            "url": event.get("url"),
+            "type": "earthquake",
+            "status": event.get("status"),
+            "magType": event.get("magType")
+        }
+        return (event_id, json.dumps(quake))
 
     except Exception as e:
-        return ("error_" + str(hash(record)), ("error", json.dumps({"error": str(e), "record": record})))
+        return (None, None)
 
-# Stateful deduplication: track if the ID has been seen
+def parse_fire(record):
+    """
+    Parses a fire event from Kafka.
+    
+    Args:
+        record (tuple): Kafka message as (key, value) pair
+        
+    Returns:
+        tuple: (event_id, json_string) or (None, None) for invalid events
+    """
+    try:
+        event = json.loads(record[1])
+        event_id = event.get("id")
+        if not event_id:
+            return (None, None)
+
+        severity = get_fire_severity(float(event.get("frp")))
+        fire = {
+            "id": event_id,
+            "time": event.get("time"),
+            "frp": event.get("frp"),
+            "severity": severity,
+            "city": event.get("city"),
+            "country": event.get("country"),
+            "type": "fire",
+            "latitude": event.get("latitude"),
+            "longitude": event.get("longitude"),
+        }
+        return (event_id, json.dumps(fire))
+
+    except Exception as e:
+        return (None, None)
+
 def update_state(new_values, last_state):
+    """
+    Stateful function for deduplication of events.
+    
+    This function:
+    1. Tracks whether an event ID has been seen before
+    2. Returns a tuple indicating if the event is new
+    
+    Args:
+        new_values (list): List of new values for the key
+        last_state (tuple): Previous state for the key
+        
+    Returns:
+        tuple: (value, is_new) where is_new is a boolean
+    """
     if last_state is not None:
         return (last_state[0], False)  # Already seen
     elif new_values:
         return (new_values[0], True)   # First time seen
     return (None, False)
 
-# Apply transformations
-parsed_lines = lines.map(parse_event).filter(lambda x: x[0] is not None)
+# Process earthquake stream
+earthquake_events = (earthquake_stream
+    .map(parse_earthquake)
+    .filter(lambda x: x[0] is not None)
+    .updateStateByKey(update_state)
+    .filter(lambda x: x[1][1] is True)
+    .map(lambda x: ("earthquake", x[1][0])))
 
-# Use updateStateByKey to track seen IDs and detect new ones
-tracked_state = parsed_lines.updateStateByKey(update_state)
+# Process fire stream
+fire_events = (fire_stream
+    .map(parse_fire)
+    .filter(lambda x: x[0] is not None)
+    .updateStateByKey(update_state)
+    .filter(lambda x: x[1][1] is True)
+    .map(lambda x: ("fire", x[1][0])))
 
-# Filter only newly seen events
-new_events = tracked_state.filter(lambda x: x[1][1] is True).map(lambda x: x[1][0])
+# Combine the processed streams
+all_events = earthquake_events.union(fire_events)
 
-# Save categorized and filtered events
 def save_partitioned(rdd):
+    """
+    Saves events to HDFS, partitioned by event type and timestamp.
+    
+    This function:
+    1. Checks if the RDD is not empty
+    2. Creates a timestamp for the batch
+    3. Saves events to separate directories based on their type
+    4. Uses HDFS path structure: /events/{event_type}/{timestamp}
+    
+    Args:
+        rdd (RDD): Resilient Distributed Dataset containing the events
+    """
     if not rdd.isEmpty():
         timestamp = datetime.datetime.utcnow().strftime("%Y%m%d%H%M%S")
-        for event_type in ["fire", "earthquake", "others", "error"]:
+        for event_type in ["fire", "earthquake"]:
             filtered = rdd.filter(lambda x: x[0] == event_type).map(lambda x: x[1])
             if not filtered.isEmpty():
                 filtered.saveAsTextFile(f"hdfs:///events/{event_type}/{timestamp}")
 
-# Write output
-new_events.foreachRDD(save_partitioned)
+# Apply the save function to each RDD in the stream
+all_events.foreachRDD(save_partitioned)
 
-# Start streaming
+# Start the streaming context
 ssc.start()
+# Wait for the streaming context to terminate
 ssc.awaitTermination()

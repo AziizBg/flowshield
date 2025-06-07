@@ -1,0 +1,9 @@
+# Core dependencies
+kafka-python==2.0.2    # Python client for Apache Kafka
+pyspark==3.5.0        # Apache Spark Python API for distributed computing
+
+# Data fetching and processing
+requests==2.31.0      # HTTP library for API calls
+geopy==2.4.1         # Geocoding library for location data
+reverse-geocoder==1.5.1  # Reverse geocoding for coordinates to location
+pycountry==23.12.11  # Country data and conversion utilities 
