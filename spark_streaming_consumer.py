@@ -20,14 +20,13 @@ Key features:
 from pyspark import SparkContext
 from pyspark.streaming import StreamingContext
 from pyspark.sql import SparkSession
-from pyspark.streaming.kafka import KafkaUtils
 import json
 import datetime
 
-# Create Spark session
+# Create Spark session with Kafka connector
 spark = SparkSession.builder \
     .appName("EarthquakeStream") \
-    .config("spark.jars.packages", "org.apache.spark:spark-streaming-kafka-0-10_2.12:3.5.0") \
+    .config("spark.jars.packages", "org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.0") \
     .getOrCreate()
 
 # Get Spark context from session
@@ -44,18 +43,18 @@ KAFKA_BOOTSTRAP_SERVERS = 'localhost:9092'  # Kafka broker address
 EARTHQUAKE_TOPIC = 'earthquakes'            # Topic for earthquake events
 FIRE_TOPIC = 'fires'                        # Topic for fire events
 
-# Create Kafka streams for both topics
-earthquake_stream = KafkaUtils.createDirectStream(
-    ssc,
-    [EARTHQUAKE_TOPIC],
-    {"bootstrap.servers": KAFKA_BOOTSTRAP_SERVERS}
-)
+# Create Kafka streams for both topics using structured streaming
+def create_kafka_stream(topic):
+    return spark.readStream \
+        .format("kafka") \
+        .option("kafka.bootstrap.servers", KAFKA_BOOTSTRAP_SERVERS) \
+        .option("subscribe", topic) \
+        .option("startingOffsets", "latest") \
+        .load()
 
-fire_stream = KafkaUtils.createDirectStream(
-    ssc,
-    [FIRE_TOPIC],
-    {"bootstrap.servers": KAFKA_BOOTSTRAP_SERVERS}
-)
+# Create streams
+earthquake_stream = create_kafka_stream(EARTHQUAKE_TOPIC)
+fire_stream = create_kafka_stream(FIRE_TOPIC)
 
 def get_fire_severity(frp):
     """
@@ -79,13 +78,13 @@ def parse_earthquake(record):
     Parses an earthquake event from Kafka.
     
     Args:
-        record (tuple): Kafka message as (key, value) pair
+        record (Row): Kafka message row
         
     Returns:
         tuple: (event_id, json_string) or (None, None) for invalid events
     """
     try:
-        event = json.loads(record[1])
+        event = json.loads(record.value.decode('utf-8'))
         event_id = event.get("id")
         if not event_id:
             return (None, None)
@@ -114,13 +113,13 @@ def parse_fire(record):
     Parses a fire event from Kafka.
     
     Args:
-        record (tuple): Kafka message as (key, value) pair
+        record (Row): Kafka message row
         
     Returns:
         tuple: (event_id, json_string) or (None, None) for invalid events
     """
     try:
-        event = json.loads(record[1])
+        event = json.loads(record.value.decode('utf-8'))
         event_id = event.get("id")
         if not event_id:
             return (None, None)
@@ -163,21 +162,18 @@ def update_state(new_values, last_state):
         return (new_values[0], True)   # First time seen
     return (None, False)
 
-# Process earthquake stream
-earthquake_events = (earthquake_stream
-    .map(parse_earthquake)
-    .filter(lambda x: x[0] is not None)
-    .updateStateByKey(update_state)
-    .filter(lambda x: x[1][1] is True)
-    .map(lambda x: ("earthquake", x[1][0])))
+# Process streams
+def process_stream(stream, parser, event_type):
+    return stream.rdd \
+        .map(parser) \
+        .filter(lambda x: x[0] is not None) \
+        .updateStateByKey(update_state) \
+        .filter(lambda x: x[1][1] is True) \
+        .map(lambda x: (event_type, x[1][0]))
 
-# Process fire stream
-fire_events = (fire_stream
-    .map(parse_fire)
-    .filter(lambda x: x[0] is not None)
-    .updateStateByKey(update_state)
-    .filter(lambda x: x[1][1] is True)
-    .map(lambda x: ("fire", x[1][0])))
+# Process both streams
+earthquake_events = process_stream(earthquake_stream, parse_earthquake, "earthquake")
+fire_events = process_stream(fire_stream, parse_fire, "fire")
 
 # Combine the processed streams
 all_events = earthquake_events.union(fire_events)
