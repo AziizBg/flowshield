@@ -1,8 +1,22 @@
 import reverse_geocoder as rg
 import pycountry
 
+# Initialize the reverse_geocoder database
+rg.init()
+
 def get_location_info(lat, lon):
+    """
+    Get city and country information from latitude and longitude coordinates.
+    
+    Args:
+        lat (float): Latitude
+        lon (float): Longitude
+        
+    Returns:
+        tuple: (city, country) names
+    """
     try:
+        # Search for location information
         result = rg.search((lat, lon), mode=1)[0]
         city = result['name']
         country_code = result['cc']
@@ -14,11 +28,19 @@ def get_location_info(lat, lon):
         return "Unknown", "Unknown"
 
 def get_fire_severity(frp):
-  # Define severity levels
-  if frp < 5:
-    severity = "Low"
-  elif frp < 15:
-    severity = "Moderate"
-  else:
-    severity = "High"
-  return severity
+    """
+    Determine fire severity based on Fire Radiative Power (FRP).
+    
+    Args:
+        frp (float): Fire Radiative Power value
+        
+    Returns:
+        str: Severity level ('Low', 'Moderate', or 'High')
+    """
+    if frp < 5:
+        severity = "Low"
+    elif frp < 15:
+        severity = "Moderate"
+    else:
+        severity = "High"
+    return severity
