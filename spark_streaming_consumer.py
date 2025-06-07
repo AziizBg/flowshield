@@ -18,24 +18,36 @@ Key features:
 """
 
 from pyspark.sql import SparkSession
-from pyspark.sql.functions import from_json, col, expr, struct, lit
+from pyspark.sql.functions import from_json, col, expr, struct, lit, to_json
 from pyspark.sql.types import StructType, StructField, StringType, DoubleType, TimestampType
 import json
 import datetime
+import logging
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
 # Create Spark session with Kafka connector
+logger.info("Initializing Spark session...")
 spark = SparkSession.builder \
     .appName("EarthquakeStream") \
     .config("spark.jars.packages", "org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.0") \
     .getOrCreate()
 
 # Enable checkpointing for fault tolerance
+logger.info("Setting up checkpoint directory...")
 spark.sparkContext.setCheckpointDir("hdfs:///checkpoints/earthquake_stream")
 
 # Kafka configuration
 KAFKA_BOOTSTRAP_SERVERS = 'localhost:9092'  # Kafka broker address
 EARTHQUAKE_TOPIC = 'earthquakes'            # Topic for earthquake events
 FIRE_TOPIC = 'fires'                        # Topic for fire events
+
+logger.info(f"Kafka configuration: bootstrap_servers={KAFKA_BOOTSTRAP_SERVERS}, topics=[{EARTHQUAKE_TOPIC}, {FIRE_TOPIC}]")
 
 # Define schemas for parsing JSON
 earthquake_schema = StructType([
@@ -58,25 +70,9 @@ fire_schema = StructType([
     StructField("longitude", DoubleType())
 ])
 
-def get_fire_severity(frp):
-    """
-    Determines the severity level of a fire based on its Fire Radiative Power (FRP).
-    
-    Args:
-        frp (float): Fire Radiative Power value
-        
-    Returns:
-        str: Severity level ('Low', 'Moderate', or 'High')
-    """
-    if frp < 5:
-        return "Low"
-    elif frp < 15:
-        return "Moderate"
-    else:
-        return "High"
-
 # Create Kafka streams for both topics
 def create_kafka_stream(topic, schema):
+    logger.info(f"Creating Kafka stream for topic: {topic}")
     return spark.readStream \
         .format("kafka") \
         .option("kafka.bootstrap.servers", KAFKA_BOOTSTRAP_SERVERS) \
@@ -87,33 +83,53 @@ def create_kafka_stream(topic, schema):
         .select("data.*")
 
 # Create streams
+logger.info("Initializing Kafka streams...")
 earthquake_stream = create_kafka_stream(EARTHQUAKE_TOPIC, earthquake_schema)
 fire_stream = create_kafka_stream(FIRE_TOPIC, fire_schema)
 
 # Process earthquake stream
+logger.info("Processing earthquake stream...")
 earthquake_events = earthquake_stream \
     .withColumn("type", lit("earthquake")) \
     .withColumn("city", expr("split(place, ',')[0]")) \
     .withColumn("country", expr("split(place, ',')[1]")) \
+    .withColumn("severity", expr("CASE WHEN magnitude < 4.0 THEN 'Low' WHEN magnitude < 6.0 THEN 'Moderate' ELSE 'High' END")) \
+    .withColumn("latitude", lit(None).cast(DoubleType())) \
+    .withColumn("longitude", lit(None).cast(DoubleType())) \
     .dropDuplicates(["id"])
 
 # Process fire stream
+logger.info("Processing fire stream...")
 fire_events = fire_stream \
     .withColumn("type", lit("fire")) \
     .withColumn("severity", expr("CASE WHEN frp < 5 THEN 'Low' WHEN frp < 15 THEN 'Moderate' ELSE 'High' END")) \
+    .withColumn("magnitude", lit(None).cast(DoubleType())) \
+    .withColumn("place", lit(None).cast(StringType())) \
+    .withColumn("url", lit(None).cast(StringType())) \
+    .withColumn("status", lit(None).cast(StringType())) \
+    .withColumn("magType", lit(None).cast(StringType())) \
     .dropDuplicates(["id"])
 
-# Combine the processed streams
-all_events = earthquake_events.union(fire_events)
-
-# Write the stream to HDFS
-query = all_events.writeStream \
+# Write earthquake events to HDFS
+logger.info("Setting up earthquake events write stream...")
+earthquake_query = earthquake_events.writeStream \
     .format("json") \
-    .option("path", "hdfs:///events") \
-    .option("checkpointLocation", "hdfs:///checkpoints/earthquake_stream") \
-    .partitionBy("type") \
+    .option("path", "hdfs:///events/earthquake") \
+    .option("checkpointLocation", "hdfs:///checkpoints/earthquake_stream/earthquake") \
     .trigger(processingTime='10 seconds') \
     .start()
 
-# Wait for the streaming query to terminate
-query.awaitTermination()
+# Write fire events to HDFS
+logger.info("Setting up fire events write stream...")
+fire_query = fire_events.writeStream \
+    .format("json") \
+    .option("path", "hdfs:///events/fire") \
+    .option("checkpointLocation", "hdfs:///checkpoints/earthquake_stream/fire") \
+    .trigger(processingTime='10 seconds') \
+    .start()
+
+logger.info("Starting streaming queries...")
+
+# Wait for both streaming queries to terminate
+earthquake_query.awaitTermination()
+fire_query.awaitTermination()
