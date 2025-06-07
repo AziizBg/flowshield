@@ -19,12 +19,20 @@ Key features:
 
 from pyspark import SparkContext
 from pyspark.streaming import StreamingContext
+from pyspark.sql import SparkSession
 from pyspark.streaming.kafka import KafkaUtils
 import json
 import datetime
 
-# Create Spark context with application name
-sc = SparkContext(appName="EarthquakeStream")
+# Create Spark session
+spark = SparkSession.builder \
+    .appName("EarthquakeStream") \
+    .config("spark.jars.packages", "org.apache.spark:spark-streaming-kafka-0-10_2.12:3.5.0") \
+    .getOrCreate()
+
+# Get Spark context from session
+sc = spark.sparkContext
+
 # Create StreamingContext with 10-second batch interval
 ssc = StreamingContext(sc, 10)
 

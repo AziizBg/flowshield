@@ -1,6 +1,7 @@
 # Core dependencies
 kafka-python==2.0.2    # Python client for Apache Kafka
 pyspark==3.5.0        # Apache Spark Python API for distributed computing
+spark-streaming-kafka==1.6.3  # Kafka connector for Spark Streaming
 
 # Data fetching and processing
 requests==2.31.0      # HTTP library for API calls
