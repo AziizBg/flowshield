@@ -308,16 +308,12 @@ class DataProcessor:
         """Process earthquake events"""
         logger.info("Processing earthquake stream...")
         
-        # Extract coordinates from place if they are NULL
+        # First extract coordinates from ID
         processed = stream \
-            .withColumn("extracted_lat", 
-                when(col("latitude").isNull(),
-                     expr("cast(split(id, '_')[0] as double)"))
-                .otherwise(col("latitude"))) \
-            .withColumn("extracted_lon", 
-                when(col("longitude").isNull(),
-                     expr("cast(split(id, '_')[1] as double)"))
-                .otherwise(col("longitude"))) \
+            .withColumn("id_parts", expr("split(id, '_')")) \
+            .withColumn("extracted_lat", expr("cast(id_parts[0] as double)")) \
+            .withColumn("extracted_lon", expr("cast(id_parts[1] as double)")) \
+            .drop("id_parts") \
             .withColumn("type", lit("earthquake")) \
             .withColumn("processed_time", current_timestamp()) \
             .withColumn("city", 
@@ -365,16 +361,12 @@ class DataProcessor:
         """Process fire events"""
         logger.info("Processing fire stream...")
         
-        # Extract coordinates from ID if they are NULL
+        # First extract coordinates from ID
         processed = stream \
-            .withColumn("extracted_lat", 
-                when(col("latitude").isNull(),
-                     expr("cast(split(id, '_')[0] as double)"))
-                .otherwise(col("latitude"))) \
-            .withColumn("extracted_lon", 
-                when(col("longitude").isNull(),
-                     expr("cast(split(id, '_')[1] as double)"))
-                .otherwise(col("longitude"))) \
+            .withColumn("id_parts", expr("split(id, '_')")) \
+            .withColumn("extracted_lat", expr("cast(id_parts[0] as double)")) \
+            .withColumn("extracted_lon", expr("cast(id_parts[1] as double)")) \
+            .drop("id_parts") \
             .withColumn("type", lit("fire")) \
             .withColumn("processed_time", current_timestamp()) \
             .withColumn("severity", 
