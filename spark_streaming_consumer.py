@@ -2,19 +2,19 @@
 Earthquake and Fire Data Consumer using Spark Structured Streaming and Kafka
 
 This script consumes earthquake and fire data from Kafka topics, processes them using Spark Structured Streaming,
-and saves the results to HDFS. It implements deduplication and categorization of events.
+and saves the results to HBase. It implements deduplication and categorization of events.
 
 The consumer:
 1. Reads from two Kafka topics: 'earthquakes' and 'fires'
 2. Processes each stream separately based on its type
 3. Deduplicates events using stateful processing
-4. Saves categorized events to HDFS
+4. Saves categorized events to HBase
 
 Key features:
 - Real-time processing using Spark Structured Streaming
 - Stateful deduplication of events
 - Separate processing for each event type
-- HDFS storage with timestamp-based partitioning
+- HBase storage with timestamp-based partitioning
 """
 
 from pyspark.sql import SparkSession
@@ -31,13 +31,13 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# HDFS configuration
-HDFS_HOST = "hadoop-master"
-HDFS_PORT = "9000"
-HDFS_BASE_PATH = f"hdfs://{HDFS_HOST}:{HDFS_PORT}"
+# HBase configuration
+HBASE_HOST = "hadoop-master"
+HBASE_PORT = "2181"
+HBASE_ZOOKEEPER_QUORUM = f"{HBASE_HOST}:{HBASE_PORT}"
 
 # Define checkpoint directory
-checkpoint_dir = f"{HDFS_BASE_PATH}/checkpoints/earthquake_stream"
+checkpoint_dir = "/tmp/spark_checkpoints"
 logger.info(f"Setting up checkpoint directory: {checkpoint_dir}")
 
 # Create Spark session with Kafka connector
@@ -46,17 +46,14 @@ spark = SparkSession.builder \
     .appName("EarthquakeStream") \
     .config("spark.sql.streaming.checkpointLocation", checkpoint_dir) \
     .config("spark.sql.streaming.schemaInference", "true") \
-    .config("spark.hadoop.dfs.replication", "1") \
     .config("spark.master", "local[*]") \
     .config("spark.driver.host", "localhost") \
     .config("spark.driver.bindAddress", "localhost") \
+    .config("hbase.zookeeper.quorum", HBASE_ZOOKEEPER_QUORUM) \
     .getOrCreate()
 
 # Enable checkpointing for fault tolerance
 spark.sparkContext.setCheckpointDir(checkpoint_dir)
-
-# Set HDFS replication factor
-spark.sparkContext._jsc.hadoopConfiguration().set("dfs.replication", "1")
 
 # Kafka configuration
 KAFKA_BOOTSTRAP_SERVERS = 'localhost:9092'  # Kafka broker address
@@ -121,13 +118,6 @@ earthquake_events = earthquake_stream \
     .withColumn("longitude", lit(None).cast(DoubleType())) \
     .dropDuplicates(["id"])
 
-# Add debug logging for earthquake stream
-earthquake_events.writeStream \
-    .format("console") \
-    .outputMode("append") \
-    .trigger(processingTime='10 seconds') \
-    .start()
-
 # Process fire stream
 logger.info("Processing fire stream...")
 fire_events = fire_stream \
@@ -140,40 +130,40 @@ fire_events = fire_stream \
     .withColumn("magType", lit(None).cast(StringType())) \
     .dropDuplicates(["id"])
 
-# Add debug logging for fire stream
-fire_events.writeStream \
-    .format("console") \
-    .outputMode("append") \
-    .trigger(processingTime='10 seconds') \
-    .start()
+# Function to write to HBase
+def write_to_hbase(df, epoch_id, table_name):
+    # Convert DataFrame to HBase format
+    hbase_data = df.select(
+        col("id").alias("rowkey"),
+        struct(
+            lit("info").alias("cf"),
+            col("*")
+        ).alias("data")
+    )
+    
+    # Write to HBase
+    hbase_data.write \
+        .format("org.apache.hadoop.hbase.spark") \
+        .option("hbase.table", table_name) \
+        .option("hbase.columns.mapping", "rowkey:key,data:info") \
+        .mode("append") \
+        .save()
 
-# Write earthquake events to HDFS
-earthquake_output_path = f"{HDFS_BASE_PATH}/events/earthquake"
-earthquake_checkpoint_path = f"{HDFS_BASE_PATH}/checkpoints/earthquake_stream/earthquake"
-logger.info(f"Setting up earthquake events write stream to: {earthquake_output_path}")
-
-# Add a query name for better monitoring
+# Write earthquake events to HBase
+logger.info("Setting up earthquake events write stream to HBase...")
 earthquake_query = earthquake_events.writeStream \
-    .format("json") \
-    .option("path", earthquake_output_path) \
-    .option("checkpointLocation", earthquake_checkpoint_path) \
-    .trigger(processingTime='10 seconds') \
+    .foreachBatch(lambda df, epoch_id: write_to_hbase(df, epoch_id, "earthquake_events")) \
     .outputMode("append") \
+    .trigger(processingTime='10 seconds') \
     .queryName("earthquake_stream") \
     .start()
 
-# Write fire events to HDFS
-fire_output_path = f"{HDFS_BASE_PATH}/events/fire"
-fire_checkpoint_path = f"{HDFS_BASE_PATH}/checkpoints/earthquake_stream/fire"
-logger.info(f"Setting up fire events write stream to: {fire_output_path}")
-
-# Add a query name for better monitoring
+# Write fire events to HBase
+logger.info("Setting up fire events write stream to HBase...")
 fire_query = fire_events.writeStream \
-    .format("json") \
-    .option("path", fire_output_path) \
-    .option("checkpointLocation", fire_checkpoint_path) \
-    .trigger(processingTime='10 seconds') \
+    .foreachBatch(lambda df, epoch_id: write_to_hbase(df, epoch_id, "fire_events")) \
     .outputMode("append") \
+    .trigger(processingTime='10 seconds') \
     .queryName("fire_stream") \
     .start()
 
