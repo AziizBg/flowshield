@@ -48,7 +48,7 @@ class StreamingConfig:
         
         # Processing configuration
         self.CHECKPOINT_DIR = os.getenv('CHECKPOINT_DIR', './spark_checkpoints')
-        self.PROCESSING_TIME = os.getenv('PROCESSING_TIME', '10 seconds')
+        self.PROCESSING_TIME = os.getenv('PROCESSING_TIME', '30 seconds')
         self.WATERMARK_THRESHOLD = os.getenv('WATERMARK_THRESHOLD', '1 hours')
 
 class HBaseRestClient:
@@ -117,6 +117,10 @@ class DataProcessor:
             .config("spark.sql.adaptive.coalescePartitions.enabled", "true") \
             .config("spark.hadoop.fs.defaultFS", "file:///") \
             .config("spark.hadoop.fs.file.impl", "org.apache.hadoop.fs.LocalFileSystem") \
+            .config("spark.sql.shuffle.partitions", "2") \
+            .config("spark.default.parallelism", "2") \
+            .config("spark.memory.fraction", "0.8") \
+            .config("spark.memory.storageFraction", "0.3") \
             .getOrCreate()
         
         spark.sparkContext.setLogLevel("WARN")
@@ -162,14 +166,23 @@ class DataProcessor:
                 .option("maxOffsetsPerTrigger", "1000") \
                 .load()
             
+            # Add debug logging for raw Kafka messages
+            stream = stream.withColumn("debug_timestamp", current_timestamp())
+            logger.info(f"Raw Kafka stream created for {topic}")
+            
             # Parse JSON with error handling
             parsed_stream = stream.select(
                 from_json(col("value").cast("string"), schema).alias("data"),
                 col("timestamp").alias("kafka_timestamp"),
                 col("partition"),
-                col("offset")
-            ).select("data.*", "kafka_timestamp", "partition", "offset") \
+                col("offset"),
+                col("debug_timestamp")
+            ).select("data.*", "kafka_timestamp", "partition", "offset", "debug_timestamp") \
              .filter(col("id").isNotNull())
+            
+            # Log when we successfully parse messages
+            parsed_stream = parsed_stream.withColumn("debug_parsed", current_timestamp())
+            logger.info(f"JSON parsing configured for {topic}")
             
             # Add watermark for late data handling
             watermarked_stream = parsed_stream.withWatermark("time", self.config.WATERMARK_THRESHOLD)
