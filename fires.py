@@ -13,6 +13,12 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Initialize geocoder with longer timeout and user agent
+geolocator = Nominatim(
+    user_agent="flowshield",
+    timeout=10  # 10 seconds timeout
+)
+
 def fetch_fires(numberOfMinutes=1, max_retries=3):
     """
     Fetch fire data from NASA FIRMS API.
@@ -81,6 +87,8 @@ def fetch_fires(numberOfMinutes=1, max_retries=3):
                             longitude = fire_data.get('longitude')
                             
                             try:
+                                # Add a small delay between geocoding requests to respect rate limits
+                                time.sleep(0.1)  # 100ms delay
                                 city, country = get_location_info(float(latitude), float(longitude))
                             except Exception as e:
                                 logger.warning(f"Error getting location info: {e}")

@@ -18,7 +18,7 @@ geolocator = Nominatim(
     timeout=10  # 10 seconds timeout
 )
 
-@lru_cache(maxsize=1000)
+@lru_cache(maxsize=10000)  # Increased cache size to 10000 entries
 def get_location_info(lat, lon):
     """
     Get city and country information from latitude and longitude coordinates.
@@ -32,9 +32,9 @@ def get_location_info(lat, lon):
         tuple: (city, country) names
     """
     try:
-        # Round coordinates to 3 decimal places for caching
-        lat_rounded = round(float(lat), 3)
-        lon_rounded = round(float(lon), 3)
+        # Round coordinates to 2 decimal places for caching (more aggressive rounding)
+        lat_rounded = round(float(lat), 2)
+        lon_rounded = round(float(lon), 2)
         
         # Try to get location with retries
         max_retries = 3
