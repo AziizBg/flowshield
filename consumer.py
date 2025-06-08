@@ -48,8 +48,8 @@ class StreamingConfig:
         
         # Processing configuration
         self.CHECKPOINT_DIR = os.getenv('CHECKPOINT_DIR', './spark_checkpoints')
-        self.PROCESSING_TIME = os.getenv('PROCESSING_TIME', '10 seconds')  # Reduced from 30 to 10 seconds
-        self.WATERMARK_THRESHOLD = os.getenv('WATERMARK_THRESHOLD', '1 hours')
+        self.PROCESSING_TIME = os.getenv('PROCESSING_TIME', '30 seconds')  # Increased from 10 to 30 seconds
+        self.WATERMARK_THRESHOLD = os.getenv('WATERMARK_THRESHOLD', '2 hours')  # Increased from 1 to 2 hours
 
 class HBaseRestClient:
     """Simple HBase REST API client"""
@@ -117,20 +117,27 @@ class DataProcessor:
             .config("spark.sql.adaptive.coalescePartitions.enabled", "true") \
             .config("spark.hadoop.fs.defaultFS", "file:///") \
             .config("spark.hadoop.fs.file.impl", "org.apache.hadoop.fs.LocalFileSystem") \
-            .config("spark.sql.shuffle.partitions", "2") \
-            .config("spark.default.parallelism", "2") \
-            .config("spark.memory.fraction", "0.8") \
-            .config("spark.memory.storageFraction", "0.3") \
+            .config("spark.sql.shuffle.partitions", "4") \
+            .config("spark.default.parallelism", "4") \
+            .config("spark.memory.fraction", "0.6") \
+            .config("spark.memory.storageFraction", "0.5") \
             .config("spark.streaming.backpressure.enabled", "true") \
-            .config("spark.streaming.kafka.maxRatePerPartition", "1000") \
-            .config("spark.streaming.kafka.consumer.cache.enabled", "false") \
+            .config("spark.streaming.kafka.maxRatePerPartition", "500") \
+            .config("spark.streaming.kafka.consumer.cache.enabled", "true") \
             .config("spark.streaming.stopGracefullyOnShutdown", "true") \
-            .config("spark.streaming.concurrentJobs", "3") \
-            .config("spark.streaming.receiver.maxRate", "1000") \
+            .config("spark.streaming.concurrentJobs", "2") \
+            .config("spark.streaming.receiver.maxRate", "500") \
             .config("spark.sql.streaming.stateStore.providerClass", "org.apache.spark.sql.execution.streaming.state.HDFSBackedStateStoreProvider") \
-            .config("spark.sql.streaming.stateStore.minDeltasForSnapshot", "10") \
+            .config("spark.sql.streaming.stateStore.minDeltasForSnapshot", "5") \
             .config("spark.sql.streaming.stateStore.rocksdb.formatVersion", "5") \
             .config("spark.sql.streaming.stateStore.rocksdb.enableStatistics", "true") \
+            .config("spark.executor.memory", "2g") \
+            .config("spark.driver.memory", "2g") \
+            .config("spark.executor.cores", "2") \
+            .config("spark.driver.cores", "2") \
+            .config("spark.task.cpus", "1") \
+            .config("spark.executor.extraJavaOptions", "-XX:+UseG1GC -XX:MaxGCPauseMillis=200") \
+            .config("spark.driver.extraJavaOptions", "-XX:+UseG1GC -XX:MaxGCPauseMillis=200") \
             .getOrCreate()
         
         spark.sparkContext.setLogLevel("WARN")
@@ -173,14 +180,17 @@ class DataProcessor:
                 .option("subscribe", topic) \
                 .option("startingOffsets", "latest") \
                 .option("failOnDataLoss", "false") \
-                .option("maxOffsetsPerTrigger", "1000") \
+                .option("maxOffsetsPerTrigger", "2000") \
                 .option("kafka.consumer.key.deserializer", "org.apache.kafka.common.serialization.StringDeserializer") \
                 .option("kafka.consumer.value.deserializer", "org.apache.kafka.common.serialization.StringDeserializer") \
                 .option("kafka.consumer.enable.auto.commit", "false") \
-                .option("kafka.consumer.max.poll.records", "500") \
+                .option("kafka.consumer.max.poll.records", "1000") \
                 .option("kafka.consumer.auto.offset.reset", "latest") \
                 .option("kafka.consumer.group.id", f"spark-streaming-{topic}") \
                 .option("kafka.consumer.client.id", f"spark-streaming-{topic}-{int(time.time())}") \
+                .option("kafka.consumer.fetch.min.bytes", "1") \
+                .option("kafka.consumer.fetch.max.wait.ms", "500") \
+                .option("kafka.consumer.max.partition.fetch.bytes", "1048576") \
                 .load()
             
             # Add debug logging for raw Kafka messages
@@ -210,7 +220,7 @@ class DataProcessor:
                 .outputMode("append") \
                 .option("truncate", "false") \
                 .option("numRows", 5) \
-                .trigger(processingTime="5 seconds") \
+                .trigger(processingTime="15 seconds") \
                 .queryName(f"debug_{topic}") \
                 .start()
             
