@@ -86,12 +86,15 @@ def create_kafka_stream(topic, schema):
         .format("kafka") \
         .option("kafka.bootstrap.servers", KAFKA_BOOTSTRAP_SERVERS) \
         .option("subscribe", topic) \
-        .option("startingOffsets", "latest") \
+        .option("startingOffsets", "earliest") \
         .load()
     
     # Parse the JSON data
     parsed_stream = stream.select(from_json(col("value").cast("string"), schema).alias("data")) \
         .select("data.*")
+    
+    # Add debug logging
+    logger.info(f"Schema for {topic}: {parsed_stream.schema}")
     
     return parsed_stream
 
@@ -134,6 +137,7 @@ earthquake_query = earthquake_events.writeStream \
     .option("path", earthquake_output_path) \
     .option("checkpointLocation", earthquake_checkpoint_path) \
     .trigger(processingTime='10 seconds') \
+    .outputMode("append") \
     .queryName("earthquake_stream") \
     .start()
 
@@ -148,6 +152,7 @@ fire_query = fire_events.writeStream \
     .option("path", fire_output_path) \
     .option("checkpointLocation", fire_checkpoint_path) \
     .trigger(processingTime='10 seconds') \
+    .outputMode("append") \
     .queryName("fire_stream") \
     .start()
 
