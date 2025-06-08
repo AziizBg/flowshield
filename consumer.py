@@ -121,17 +121,31 @@ class GeoCoder:
 
 # Create a simple geocoding function
 def get_location_info(lat: float, lon: float) -> tuple:
-    """Get city and country from coordinates"""
-    try:
-        geolocator = Nominatim(user_agent="flowshield")
-        location = geolocator.reverse(f"{lat}, {lon}", language='en')
-        if location:
-            address = location.raw.get('address', {})
-            city = address.get('city') or address.get('town') or address.get('village') or "Unknown"
-            country = address.get('country') or "Unknown"
-            return city, country
-    except (GeocoderTimedOut, GeocoderServiceError) as e:
-        logger.warning(f"Geocoding failed for coordinates ({lat}, {lon}): {str(e)}")
+    """Get city and country from coordinates with retry logic"""
+    max_retries = 3
+    timeout = 10  # 10 seconds timeout
+    
+    for attempt in range(max_retries):
+        try:
+            geolocator = Nominatim(
+                user_agent="flowshield",
+                timeout=timeout
+            )
+            location = geolocator.reverse(f"{lat}, {lon}", language='en')
+            if location:
+                address = location.raw.get('address', {})
+                city = address.get('city') or address.get('town') or address.get('village') or "Unknown"
+                country = address.get('country') or "Unknown"
+                return city, country
+        except (GeocoderTimedOut, GeocoderServiceError) as e:
+            if attempt < max_retries - 1:
+                time.sleep(1)  # Wait 1 second before retrying
+                continue
+            logger.warning(f"Geocoding failed for coordinates ({lat}, {lon}) after {max_retries} attempts: {str(e)}")
+        except Exception as e:
+            logger.error(f"Unexpected error during geocoding for coordinates ({lat}, {lon}): {str(e)}")
+            break
+    
     return "Unknown", "Unknown"
 
 # Register the UDF
