@@ -89,15 +89,9 @@ def create_kafka_stream(topic, schema):
         .option("startingOffsets", "latest") \
         .load()
     
-    # Log the raw data count
-    logger.info(f"Raw data count for {topic}: {stream.count()}")
-    
     # Parse the JSON data
     parsed_stream = stream.select(from_json(col("value").cast("string"), schema).alias("data")) \
         .select("data.*")
-    
-    # Log the parsed data count
-    logger.info(f"Parsed data count for {topic}: {parsed_stream.count()}")
     
     return parsed_stream
 
@@ -117,9 +111,6 @@ earthquake_events = earthquake_stream \
     .withColumn("longitude", lit(None).cast(DoubleType())) \
     .dropDuplicates(["id"])
 
-# Log earthquake event count
-logger.info(f"Processed earthquake events count: {earthquake_events.count()}")
-
 # Process fire stream
 logger.info("Processing fire stream...")
 fire_events = fire_stream \
@@ -131,9 +122,6 @@ fire_events = fire_stream \
     .withColumn("status", lit(None).cast(StringType())) \
     .withColumn("magType", lit(None).cast(StringType())) \
     .dropDuplicates(["id"])
-
-# Log fire event count
-logger.info(f"Processed fire events count: {fire_events.count()}")
 
 # Write earthquake events to HDFS
 earthquake_output_path = f"{HDFS_BASE_PATH}/events/earthquake"
