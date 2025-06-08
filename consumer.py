@@ -187,20 +187,6 @@ class DataProcessor:
             stream = stream.withColumn("debug_timestamp", current_timestamp())
             logger.info(f"Raw Kafka stream created for {topic}")
             
-            # Log the raw data for debugging
-            def debug_raw_data(df, epoch_id):
-                if df.count() > 0:
-                    logger.info(f"Raw data in batch {epoch_id} for {topic}:")
-                    df.select("value").show(truncate=False)
-                else:
-                    logger.warning(f"No raw data in batch {epoch_id} for {topic}")
-            
-            stream = stream.writeStream \
-                .foreachBatch(debug_raw_data) \
-                .outputMode("append") \
-                .trigger(processingTime="1 second") \
-                .start()
-            
             # Parse JSON with error handling
             parsed_stream = stream.select(
                 from_json(col("value").cast("string"), schema).alias("data"),
@@ -217,6 +203,16 @@ class DataProcessor:
             
             # Add watermark for late data handling
             watermarked_stream = parsed_stream.withWatermark("time", self.config.WATERMARK_THRESHOLD)
+            
+            # Add debug sink to monitor the data
+            debug_query = watermarked_stream.writeStream \
+                .format("console") \
+                .outputMode("append") \
+                .option("truncate", "false") \
+                .option("numRows", 5) \
+                .trigger(processingTime="5 seconds") \
+                .queryName(f"debug_{topic}") \
+                .start()
             
             logger.info(f"Successfully created stream for {topic}")
             return watermarked_stream
@@ -380,35 +376,45 @@ class DataProcessor:
         
         try:
             # Create Kafka streams
+            logger.info("Creating earthquake stream...")
             earthquake_stream = self.create_kafka_stream(
                 self.config.EARTHQUAKE_TOPIC, 
                 self.earthquake_schema
             )
+            
+            logger.info("Creating fire stream...")
             fire_stream = self.create_kafka_stream(
                 self.config.FIRE_TOPIC, 
                 self.fire_schema
             )
             
             # Process streams
+            logger.info("Processing earthquake stream...")
             processed_earthquakes = self.process_earthquake_stream(earthquake_stream)
+            
+            logger.info("Processing fire stream...")
             processed_fires = self.process_fire_stream(fire_stream)
             
             # Create metrics stream
+            logger.info("Creating metrics stream...")
             metrics_stream = self.create_metrics_stream(processed_earthquakes, processed_fires)
             
             # Start writing streams based on configuration
+            logger.info(f"Starting earthquake query with output mode: {self.config.OUTPUT_MODE}")
             earthquake_query = self.create_writer(
                 processed_earthquakes, 
                 "earthquake_stream",
                 "earthquakes" if self.config.OUTPUT_MODE in ['json', 'parquet'] else "earthquake_events"
             )
             
+            logger.info(f"Starting fire query with output mode: {self.config.OUTPUT_MODE}")
             fire_query = self.create_writer(
                 processed_fires, 
                 "fire_stream",
                 "fires" if self.config.OUTPUT_MODE in ['json', 'parquet'] else "fire_events"
             )
             
+            logger.info("Starting metrics query...")
             metrics_query = self.write_to_console(metrics_stream, "metrics_stream")
             
             logger.info("All streaming queries started successfully")
@@ -417,12 +423,15 @@ class DataProcessor:
                 logger.info(f"Output path: {self.config.OUTPUT_PATH}")
             
             # Wait for termination
+            logger.info("Waiting for termination...")
             earthquake_query.awaitTermination()
             
         except Exception as e:
             logger.error(f"Pipeline failed: {str(e)}")
+            logger.error("Stack trace:", exc_info=True)
             raise
         finally:
+            logger.info("Stopping Spark session...")
             self.spark.stop()
     
     def create_metrics_stream(self, earthquake_stream, fire_stream):
