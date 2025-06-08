@@ -48,8 +48,10 @@ class StreamingConfig:
         
         # Processing configuration
         self.CHECKPOINT_DIR = os.getenv('CHECKPOINT_DIR', './spark_checkpoints')
-        self.PROCESSING_TIME = os.getenv('PROCESSING_TIME', '30 seconds')  # Increased from 10 to 30 seconds
-        self.WATERMARK_THRESHOLD = os.getenv('WATERMARK_THRESHOLD', '2 hours')  # Increased from 1 to 2 hours
+        self.PROCESSING_TIME = os.getenv('PROCESSING_TIME', '45 seconds')  # Increased from 30 to 45 seconds
+        self.WATERMARK_THRESHOLD = os.getenv('WATERMARK_THRESHOLD', '2 hours')
+        self.BATCH_SIZE = int(os.getenv('BATCH_SIZE', '1000'))  # Default batch size
+        self.MAX_RECORDS_PER_TRIGGER = int(os.getenv('MAX_RECORDS_PER_TRIGGER', '2000'))  # Max records per trigger
 
 class HBaseRestClient:
     """Simple HBase REST API client"""
@@ -127,17 +129,23 @@ class DataProcessor:
             .config("spark.streaming.stopGracefullyOnShutdown", "true") \
             .config("spark.streaming.concurrentJobs", "2") \
             .config("spark.streaming.receiver.maxRate", "500") \
+            # State store optimizations
             .config("spark.sql.streaming.stateStore.providerClass", "org.apache.spark.sql.execution.streaming.state.HDFSBackedStateStoreProvider") \
-            .config("spark.sql.streaming.stateStore.minDeltasForSnapshot", "5") \
+            .config("spark.sql.streaming.stateStore.minDeltasForSnapshot", "10") \
             .config("spark.sql.streaming.stateStore.rocksdb.formatVersion", "5") \
             .config("spark.sql.streaming.stateStore.rocksdb.enableStatistics", "true") \
-            .config("spark.executor.memory", "2g") \
-            .config("spark.driver.memory", "2g") \
-            .config("spark.executor.cores", "2") \
-            .config("spark.driver.cores", "2") \
-            .config("spark.task.cpus", "1") \
-            .config("spark.executor.extraJavaOptions", "-XX:+UseG1GC -XX:MaxGCPauseMillis=200") \
-            .config("spark.driver.extraJavaOptions", "-XX:+UseG1GC -XX:MaxGCPauseMillis=200") \
+            .config("spark.sql.streaming.stateStore.rocksdb.compression", "true") \
+            .config("spark.sql.streaming.stateStore.rocksdb.blockSize", "16384") \
+            .config("spark.sql.streaming.stateStore.rocksdb.cacheSize", "104857600") \
+            .config("spark.sql.streaming.stateStore.rocksdb.writeBufferSize", "67108864") \
+            .config("spark.sql.streaming.stateStore.rocksdb.maxWriteBufferNumber", "3") \
+            .config("spark.sql.streaming.stateStore.rocksdb.minWriteBufferNumberToMerge", "2") \
+            .config("spark.sql.streaming.stateStore.rocksdb.level0FileNumCompactionTrigger", "4") \
+            .config("spark.sql.streaming.stateStore.rocksdb.level0SlowdownWritesTrigger", "8") \
+            .config("spark.sql.streaming.stateStore.rocksdb.level0StopWritesTrigger", "12") \
+            .config("spark.sql.streaming.stateStore.rocksdb.targetFileSizeBase", "67108864") \
+            .config("spark.sql.streaming.stateStore.rocksdb.maxBackgroundCompactions", "2") \
+            .config("spark.sql.streaming.stateStore.rocksdb.maxBackgroundFlushes", "1") \
             .getOrCreate()
         
         spark.sparkContext.setLogLevel("WARN")
@@ -180,11 +188,11 @@ class DataProcessor:
                 .option("subscribe", topic) \
                 .option("startingOffsets", "latest") \
                 .option("failOnDataLoss", "false") \
-                .option("maxOffsetsPerTrigger", "2000") \
+                .option("maxOffsetsPerTrigger", self.config.MAX_RECORDS_PER_TRIGGER) \
                 .option("kafka.consumer.key.deserializer", "org.apache.kafka.common.serialization.StringDeserializer") \
                 .option("kafka.consumer.value.deserializer", "org.apache.kafka.common.serialization.StringDeserializer") \
                 .option("kafka.consumer.enable.auto.commit", "false") \
-                .option("kafka.consumer.max.poll.records", "1000") \
+                .option("kafka.consumer.max.poll.records", self.config.BATCH_SIZE) \
                 .option("kafka.consumer.auto.offset.reset", "latest") \
                 .option("kafka.consumer.group.id", f"spark-streaming-{topic}") \
                 .option("kafka.consumer.client.id", f"spark-streaming-{topic}-{int(time.time())}") \
