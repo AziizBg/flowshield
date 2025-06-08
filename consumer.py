@@ -47,7 +47,7 @@ class StreamingConfig:
         self.HBASE_REST_URL = os.getenv('HBASE_REST_URL', 'http://hadoop-master:8080')
         
         # Processing configuration
-        self.CHECKPOINT_DIR = os.getenv('CHECKPOINT_DIR', '/tmp/spark_checkpoints')
+        self.CHECKPOINT_DIR = os.getenv('CHECKPOINT_DIR', './spark_checkpoints')
         self.PROCESSING_TIME = os.getenv('PROCESSING_TIME', '10 seconds')
         self.WATERMARK_THRESHOLD = os.getenv('WATERMARK_THRESHOLD', '1 hours')
 
@@ -115,6 +115,8 @@ class DataProcessor:
             .config("spark.serializer", "org.apache.spark.serializer.KryoSerializer") \
             .config("spark.sql.adaptive.enabled", "true") \
             .config("spark.sql.adaptive.coalescePartitions.enabled", "true") \
+            .config("spark.hadoop.fs.defaultFS", "file:///") \
+            .config("spark.hadoop.fs.file.impl", "org.apache.hadoop.fs.LocalFileSystem") \
             .getOrCreate()
         
         spark.sparkContext.setLogLevel("WARN")
