@@ -48,7 +48,7 @@ class StreamingConfig:
         
         # Processing configuration
         self.CHECKPOINT_DIR = os.getenv('CHECKPOINT_DIR', './spark_checkpoints')
-        self.PROCESSING_TIME = os.getenv('PROCESSING_TIME', '30 seconds')
+        self.PROCESSING_TIME = os.getenv('PROCESSING_TIME', '10 seconds')  # Reduced from 30 to 10 seconds
         self.WATERMARK_THRESHOLD = os.getenv('WATERMARK_THRESHOLD', '1 hours')
 
 class HBaseRestClient:
@@ -121,6 +121,12 @@ class DataProcessor:
             .config("spark.default.parallelism", "2") \
             .config("spark.memory.fraction", "0.8") \
             .config("spark.memory.storageFraction", "0.3") \
+            .config("spark.streaming.backpressure.enabled", "true") \
+            .config("spark.streaming.kafka.maxRatePerPartition", "1000") \
+            .config("spark.streaming.kafka.consumer.cache.enabled", "false") \
+            .config("spark.streaming.stopGracefullyOnShutdown", "true") \
+            .config("spark.streaming.concurrentJobs", "3") \
+            .config("spark.streaming.receiver.maxRate", "1000") \
             .getOrCreate()
         
         spark.sparkContext.setLogLevel("WARN")
@@ -164,6 +170,11 @@ class DataProcessor:
                 .option("startingOffsets", "latest") \
                 .option("failOnDataLoss", "false") \
                 .option("maxOffsetsPerTrigger", "1000") \
+                .option("kafka.consumer.key.deserializer", "org.apache.kafka.common.serialization.StringDeserializer") \
+                .option("kafka.consumer.value.deserializer", "org.apache.kafka.common.serialization.StringDeserializer") \
+                .option("kafka.consumer.enable.auto.commit", "false") \
+                .option("kafka.consumer.max.poll.records", "500") \
+                .option("kafka.consumer.auto.offset.reset", "latest") \
                 .load()
             
             # Add debug logging for raw Kafka messages
