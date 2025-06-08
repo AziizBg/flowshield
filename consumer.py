@@ -280,6 +280,20 @@ class DataProcessor:
             ).select("data.*", "kafka_timestamp", "partition", "offset", "debug_timestamp") \
              .filter(col("id").isNotNull())
             
+            # Add debug sink to show schema and sample values
+            debug_schema_query = parsed_stream.writeStream \
+                .format("console") \
+                .outputMode("append") \
+                .option("truncate", "false") \
+                .option("numRows", 1) \
+                .trigger(processingTime="5 seconds") \
+                .queryName(f"debug_schema_{topic}") \
+                .start()
+            
+            # Log schema information
+            logger.info(f"Schema for {topic}:")
+            parsed_stream.printSchema()
+            
             # Log when we successfully parse messages
             parsed_stream = parsed_stream.withColumn("debug_parsed", current_timestamp())
             logger.info(f"JSON parsing configured for {topic}")
