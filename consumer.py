@@ -308,12 +308,17 @@ class DataProcessor:
         """Process earthquake events"""
         logger.info("Processing earthquake stream...")
         
-        # First extract coordinates from ID
+        # First extract coordinates from ID with careful parsing
         processed = stream \
             .withColumn("id_parts", expr("split(id, '_')")) \
-            .withColumn("extracted_lat", expr("cast(id_parts[0] as double)")) \
-            .withColumn("extracted_lon", expr("cast(id_parts[1] as double)")) \
-            .drop("id_parts") \
+            .withColumn("extracted_lat", 
+                when(expr("size(id_parts) >= 2"),
+                     expr("cast(id_parts[0] as double)"))
+                .otherwise(lit(None))) \
+            .withColumn("extracted_lon", 
+                when(expr("size(id_parts) >= 2"),
+                     expr("cast(id_parts[1] as double)"))
+                .otherwise(lit(None))) \
             .withColumn("type", lit("earthquake")) \
             .withColumn("processed_time", current_timestamp()) \
             .withColumn("city", 
@@ -352,7 +357,7 @@ class DataProcessor:
                 .otherwise(col("country"))) \
             .withColumn("latitude", col("extracted_lat")) \
             .withColumn("longitude", col("extracted_lon")) \
-            .drop("extracted_lat", "extracted_lon", "location_info") \
+            .drop("extracted_lat", "extracted_lon", "location_info", "id_parts") \
             .dropDuplicates(["id"])
         
         return processed
@@ -361,12 +366,17 @@ class DataProcessor:
         """Process fire events"""
         logger.info("Processing fire stream...")
         
-        # First extract coordinates from ID
+        # First extract coordinates from ID with careful parsing
         processed = stream \
-            .withColumn("id_parts", expr("split(id, '_')")) \
-            .withColumn("extracted_lat", expr("cast(id_parts[0] as double)")) \
-            .withColumn("extracted_lon", expr("cast(id_parts[1] as double)")) \
-            .drop("id_parts") \
+            .withColumn("id_parts", expr("split(id, '_-')")) \
+            .withColumn("extracted_lat", 
+                when(expr("size(id_parts) >= 2"),
+                     expr("cast(id_parts[0] as double)"))
+                .otherwise(lit(None))) \
+            .withColumn("extracted_lon", 
+                when(expr("size(id_parts) >= 2"),
+                     expr("cast(id_parts[1] as double)"))
+                .otherwise(lit(None))) \
             .withColumn("type", lit("fire")) \
             .withColumn("processed_time", current_timestamp()) \
             .withColumn("severity", 
@@ -400,7 +410,7 @@ class DataProcessor:
                 .otherwise(col("country"))) \
             .withColumn("latitude", col("extracted_lat")) \
             .withColumn("longitude", col("extracted_lon")) \
-            .drop("extracted_lat", "extracted_lon", "location_info") \
+            .drop("extracted_lat", "extracted_lon", "location_info", "id_parts") \
             .dropDuplicates(["id"])
         
         return processed
