@@ -1,107 +1,198 @@
-# Real-time Disaster Data Streaming Platform
+# FlowShield - Real-time Natural Disaster Monitoring System
 
-This project implements a real-time data streaming platform that collects and processes disaster-related data from multiple sources, including earthquakes, fires, and other natural disasters. The system uses Apache Kafka for message streaming and Apache Spark for real-time data processing.
+FlowShield is a real-time monitoring system that tracks and analyzes earthquake and fire events using Apache Kafka, Spark Streaming, and HBase. The system provides real-time processing, analysis, and storage of natural disaster events.
 
-## Project Structure
+## System Architecture
 
-- `producer.py` - Main data producer that fetches and streams disaster data
-- `spark_streaming_consumer.py` - Spark Streaming consumer for processing the data stream
-- `fires.py` - Fire incident data processing module
-- `earthquakes.py` - Earthquake data processing module
-- `eonet_disasters.py` - NASA EONET disaster data processing module
-- `helpers.py` - Utility functions and helper methods
-- `requirements.txt` - Project dependencies
+The system consists of three main components:
+
+1. **Data Producer** (`producer.py`)
+   - Fetches earthquake data from USGS API
+   - Fetches fire data from NASA FIRMS API
+   - Publishes events to Kafka topics
+
+2. **Data Consumer** (`consumer.py`)
+   - Processes streaming data using Spark Structured Streaming
+   - Implements real-time analytics and event categorization
+   - Stores processed data in HBase
+
+3. **Storage Layer** (HBase)
+   - Stores processed events in two tables:
+     - `earthquake_events`: Earthquake data
+     - `fire_events`: Fire data
+
+## Features
+
+### Data Collection
+- Real-time earthquake data from USGS API
+- Real-time fire data from NASA FIRMS API
+- Automatic data fetching every 60 seconds
+- Error handling and retry mechanisms
+
+### Data Processing
+- Real-time stream processing using Spark Structured Streaming
+- Event deduplication
+- Severity categorization:
+  - Earthquakes:
+    - Low: < 4.0 magnitude
+    - Moderate: 4.0-6.0 magnitude
+    - High: > 6.0 magnitude
+  - Fires:
+    - Low: < 5 FRP (Fire Radiative Power)
+    - Moderate: 5-15 FRP
+    - High: > 15 FRP
+- Geocoding of coordinates to city/country information
+- Time-based windowing for analytics
+
+### Data Storage
+- HBase storage with REST API integration
+- Column-family based storage design
+- Efficient row-key design using event IDs
+- Automatic table creation and management
+
+### Monitoring and Analytics
+- Real-time metrics generation
+- Event count by severity
+- Average and maximum magnitudes/FRP
+- Time-window based aggregations
 
 ## Prerequisites
 
 - Python 3.8+
-- Apache Kafka
-- Apache Spark
+- Apache Kafka 2.8+
+- Apache Spark 3.5.0
+- Apache HBase 2.4+
+- Java 8+
 
 ## Installation
 
-1. Clone the repository:
-```bash
-git clone <repository-url>
-cd stream
-```
+1. **Clone the repository**
+   ```bash
+   git clone <repository-url>
+   cd flowshield
+   ```
 
-2. Create and activate a virtual environment (recommended):
-```bash
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-```
+2. **Install Python dependencies**
+   ```bash
+   pip install -r requirements.txt
+   ```
 
-3. Install dependencies:
-```bash
-pip install -r requirements.txt
-```
+3. **Configure Kafka**
+   - Ensure Kafka is running on localhost:9092
+   - Create topics:
+     ```bash
+     kafka-topics.sh --create --topic earthquakes --bootstrap-server localhost:9092
+     kafka-topics.sh --create --topic fires --bootstrap-server localhost:9092
+     ```
 
-## Dependencies
-
-- kafka-python==2.0.2 - Python client for Apache Kafka
-- pyspark==3.5.0 - Apache Spark Python API
-- spark-streaming-kafka==1.6.3 - Kafka connector for Spark Streaming
-- requests==2.31.0 - HTTP library for API calls
-- geopy==2.4.1 - Geocoding library
-- reverse-geocoder==1.5.1 - Reverse geocoding utilities
-- pycountry==23.12.11 - Country data utilities
+4. **Configure HBase**
+   - Ensure HBase is running and accessible
+   - Default REST API endpoint: http://hadoop-master:8080
 
 ## Usage
 
-1. Start Apache Kafka:
-```bash
-# Start Zookeeper and Kafka server
-./start-kafka-zookeeper.sh
-```
+### 1. Start the Producer
 
-2. Create Kafka topics:
-```bash
-kafka-topics.sh --create --topic fires --replication-factor 1 --partitions 1 --bootstrap-server localhost:9092
-kafka-topics.sh --create --topic earthquakes --replication-factor 1 --partitions 1 --bootstrap-server localhost:9092
-```
-
-3. Start the data producer:
 ```bash
 python producer.py
 ```
 
-4. Start the Spark Streaming consumer:
+The producer will:
+- Connect to Kafka
+- Start fetching earthquake and fire data
+- Publish events to respective Kafka topics
+- Log activities to console
+
+### 2. Start the Consumer
+
 ```bash
-spark-submit spark_streaming_consumer.py
+./consumer.sh
 ```
 
-## Data Sources
+The consumer will:
+- Initialize Spark session
+- Connect to Kafka topics
+- Process incoming events
+- Store data in HBase
+- Generate real-time metrics
 
-The system collects data from multiple sources:
-- Earthquake data from USGS
-- Fire incident data
-- NASA EONET disaster data
+### Configuration
 
-## Data Processing
+The system can be configured through environment variables in `consumer.sh`:
 
-The Spark Streaming consumer processes the incoming data stream and performs:
-- Real-time data transformation
-- Geographic data enrichment
-- Data validation and cleaning
-- Aggregation and analysis
+```bash
+# Output configuration
+export OUTPUT_MODE=hbase_rest  # Options: console, json, parquet, hbase_rest
 
-## Contributing
+# Kafka configuration
+export KAFKA_BOOTSTRAP_SERVERS=localhost:9092
+export EARTHQUAKE_TOPIC=earthquakes
+export FIRE_TOPIC=fires
 
-1. Fork the repository
-2. Create a feature branch
-3. Commit your changes
-4. Push to the branch
-5. Create a Pull Request
+# HBase configuration
+export HBASE_REST_URL=http://hadoop-master:8080
+```
 
-## License
+## Data Schema
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+### Earthquake Events
+- `id`: Unique identifier
+- `time`: Timestamp
+- `magnitude`: Earthquake magnitude
+- `place`: Location description
+- `latitude`: Latitude coordinate
+- `longitude`: Longitude coordinate
+- `severity`: Categorized severity (Low/Moderate/High)
+- `city`: City name (derived from coordinates)
+- `country`: Country name (derived from coordinates)
 
-## Acknowledgments
+### Fire Events
+- `id`: Unique identifier
+- `time`: Timestamp
+- `frp`: Fire Radiative Power
+- `latitude`: Latitude coordinate
+- `longitude`: Longitude coordinate
+- `severity`: Categorized severity (Low/Moderate/High)
+- `city`: City name (derived from coordinates)
+- `country`: Country name (derived from coordinates)
 
-- USGS for earthquake data
-- NASA EONET for disaster data
-- Apache Kafka and Spark communities 
+## Monitoring
 
-## stream processes
+The system provides real-time monitoring through:
+
+1. **Logging**
+   - Detailed logs in `%(asctime)s - %(levelname)s - %(message)s` format
+   - Log level: INFO
+
+2. **Metrics**
+   - Event counts by severity
+   - Average and maximum values
+   - Time-window based aggregations
+
+## Error Handling
+
+The system implements comprehensive error handling:
+
+1. **Producer**
+   - Automatic retry on API failures
+   - Connection error handling
+   - Data validation
+
+2. **Consumer**
+   - Stream processing error recovery
+   - HBase connection retry
+   - Data validation and cleaning
+
+## Performance Optimization
+
+The system is optimized for performance through:
+
+1. **Spark Configuration**
+   - Optimized batch sizes
+   - Efficient state management
+   - Watermark configuration for late data
+
+2. **HBase Integration**
+   - Batch writing
+   - Efficient row-key design
+   - Column-family optimization
