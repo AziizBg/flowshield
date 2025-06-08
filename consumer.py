@@ -280,7 +280,16 @@ class DataProcessor:
         """Process earthquake events"""
         logger.info("Processing earthquake stream...")
         
+        # Extract coordinates from place if they are NULL
         processed = stream \
+            .withColumn("extracted_lat", 
+                when(col("latitude").isNull(),
+                     expr("cast(split(id, '_')[0] as double)"))
+                .otherwise(col("latitude"))) \
+            .withColumn("extracted_lon", 
+                when(col("longitude").isNull(),
+                     expr("cast(split(id, '_')[1] as double)"))
+                .otherwise(col("longitude"))) \
             .withColumn("type", lit("earthquake")) \
             .withColumn("processed_time", current_timestamp()) \
             .withColumn("city", 
@@ -300,22 +309,26 @@ class DataProcessor:
                 when((col("magnitude").isNotNull()) & 
                      (col("magnitude") >= 0) & 
                      (col("magnitude") <= 10) &
-                     (col("latitude").isNotNull()) &
-                     (col("longitude").isNotNull()) &
-                     (col("latitude").between(-90, 90)) &
-                     (col("longitude").between(-180, 180)), True)
+                     (col("extracted_lat").isNotNull()) &
+                     (col("extracted_lon").isNotNull()) &
+                     (col("extracted_lat").between(-90, 90)) &
+                     (col("extracted_lon").between(-180, 180)), True)
                 .otherwise(False)) \
             .filter(col("is_valid") == True) \
             .drop("is_valid") \
             .withColumn("frp", lit(None).cast(DoubleType())) \
+            .withColumn("location_info", get_location(col("extracted_lat"), col("extracted_lon"))) \
             .withColumn("city", 
                 when(col("city").isNull() | (col("city") == "Unknown"), 
-                     expr("concat(cast(latitude as string), '_', cast(longitude as string))"))
+                     col("location_info.city"))
                 .otherwise(col("city"))) \
             .withColumn("country", 
                 when(col("country").isNull() | (col("country") == "Unknown"), 
-                     lit("Unknown"))
+                     col("location_info.country"))
                 .otherwise(col("country"))) \
+            .withColumn("latitude", col("extracted_lat")) \
+            .withColumn("longitude", col("extracted_lon")) \
+            .drop("extracted_lat", "extracted_lon", "location_info") \
             .dropDuplicates(["id"])
         
         return processed
@@ -324,7 +337,16 @@ class DataProcessor:
         """Process fire events"""
         logger.info("Processing fire stream...")
         
+        # Extract coordinates from ID if they are NULL
         processed = stream \
+            .withColumn("extracted_lat", 
+                when(col("latitude").isNull(),
+                     expr("cast(split(id, '_')[0] as double)"))
+                .otherwise(col("latitude"))) \
+            .withColumn("extracted_lon", 
+                when(col("longitude").isNull(),
+                     expr("cast(split(id, '_')[1] as double)"))
+                .otherwise(col("longitude"))) \
             .withColumn("type", lit("fire")) \
             .withColumn("processed_time", current_timestamp()) \
             .withColumn("severity", 
@@ -335,10 +357,10 @@ class DataProcessor:
             .withColumn("is_valid", 
                 when((col("frp").isNotNull()) & 
                      (col("frp") >= 0) & 
-                     (col("latitude").isNotNull()) &
-                     (col("longitude").isNotNull()) &
-                     (col("latitude").between(-90, 90)) &
-                     (col("longitude").between(-180, 180)), True)
+                     (col("extracted_lat").isNotNull()) &
+                     (col("extracted_lon").isNotNull()) &
+                     (col("extracted_lat").between(-90, 90)) &
+                     (col("extracted_lon").between(-180, 180)), True)
                 .otherwise(False)) \
             .filter(col("is_valid") == True) \
             .drop("is_valid") \
@@ -347,7 +369,7 @@ class DataProcessor:
             .withColumn("url", lit(None).cast(StringType())) \
             .withColumn("status", lit(None).cast(StringType())) \
             .withColumn("magType", lit(None).cast(StringType())) \
-            .withColumn("location_info", get_location(col("latitude"), col("longitude"))) \
+            .withColumn("location_info", get_location(col("extracted_lat"), col("extracted_lon"))) \
             .withColumn("city", 
                 when(col("city").isNull() | (col("city") == "Unknown"), 
                      col("location_info.city"))
@@ -356,7 +378,9 @@ class DataProcessor:
                 when(col("country").isNull() | (col("country") == "Unknown"), 
                      col("location_info.country"))
                 .otherwise(col("country"))) \
-            .drop("location_info") \
+            .withColumn("latitude", col("extracted_lat")) \
+            .withColumn("longitude", col("extracted_lon")) \
+            .drop("extracted_lat", "extracted_lon", "location_info") \
             .dropDuplicates(["id"])
         
         return processed
