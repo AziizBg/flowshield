@@ -55,9 +55,10 @@ pip install -r requirements.txt
 ./start-kafka-zookeeper.sh
 ```
 
-2. Create Kafka topic:
+2. Create Kafka topics:
 ```bash
-kafka-topics.sh --create --topic disaster-data --bootstrap-server localhost:9092 --partitions 1 --replication-factor 1
+kafka-topics.sh --create --topic fires --replication-factor 1 --partitions 1 --bootstrap-server localhost:9092
+kafka-topics.sh --create --topic earthquakes --replication-factor 1 --partitions 1 --bootstrap-server localhost:9092
 ```
 
 3. Start the data producer:
@@ -102,3 +103,5 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 - USGS for earthquake data
 - NASA EONET for disaster data
 - Apache Kafka and Spark communities 
+
+## stream processes
