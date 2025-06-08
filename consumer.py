@@ -48,10 +48,10 @@ class StreamingConfig:
         
         # Processing configuration
         self.CHECKPOINT_DIR = os.getenv('CHECKPOINT_DIR', './spark_checkpoints')
-        self.PROCESSING_TIME = os.getenv('PROCESSING_TIME', '45 seconds')  # Increased from 30 to 45 seconds
+        self.PROCESSING_TIME = os.getenv('PROCESSING_TIME', '60 seconds')  # Increased to 60 seconds
         self.WATERMARK_THRESHOLD = os.getenv('WATERMARK_THRESHOLD', '2 hours')
-        self.BATCH_SIZE = int(os.getenv('BATCH_SIZE', '1000'))  # Default batch size
-        self.MAX_RECORDS_PER_TRIGGER = int(os.getenv('MAX_RECORDS_PER_TRIGGER', '2000'))  # Max records per trigger
+        self.BATCH_SIZE = int(os.getenv('BATCH_SIZE', '500'))  # Reduced batch size
+        self.MAX_RECORDS_PER_TRIGGER = int(os.getenv('MAX_RECORDS_PER_TRIGGER', '1000'))  # Reduced max records
 
 class HBaseRestClient:
     """Simple HBase REST API client"""
@@ -187,17 +187,17 @@ class DataProcessor:
                 .option("subscribe", topic) \
                 .option("startingOffsets", "latest") \
                 .option("failOnDataLoss", "false") \
-                .option("maxOffsetsPerTrigger", self.config.MAX_RECORDS_PER_TRIGGER) \
+                .option("maxOffsetsPerTrigger", "500") \
                 .option("kafka.consumer.key.deserializer", "org.apache.kafka.common.serialization.StringDeserializer") \
                 .option("kafka.consumer.value.deserializer", "org.apache.kafka.common.serialization.StringDeserializer") \
                 .option("kafka.consumer.enable.auto.commit", "false") \
-                .option("kafka.consumer.max.poll.records", self.config.BATCH_SIZE) \
+                .option("kafka.consumer.max.poll.records", "250") \
                 .option("kafka.consumer.auto.offset.reset", "latest") \
                 .option("kafka.consumer.group.id", f"spark-streaming-{topic}") \
                 .option("kafka.consumer.client.id", f"spark-streaming-{topic}-{int(time.time())}") \
                 .option("kafka.consumer.fetch.min.bytes", "1") \
-                .option("kafka.consumer.fetch.max.wait.ms", "500") \
-                .option("kafka.consumer.max.partition.fetch.bytes", "1048576") \
+                .option("kafka.consumer.fetch.max.wait.ms", "1000") \
+                .option("kafka.consumer.max.partition.fetch.bytes", "524288") \
                 .load()
             
             # Add debug logging for raw Kafka messages
@@ -227,7 +227,7 @@ class DataProcessor:
                 .outputMode("append") \
                 .option("truncate", "false") \
                 .option("numRows", 5) \
-                .trigger(processingTime="15 seconds") \
+                .trigger(processingTime="30 seconds") \
                 .queryName(f"debug_{topic}") \
                 .start()
             
