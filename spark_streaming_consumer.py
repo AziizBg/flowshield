@@ -36,6 +36,10 @@ HDFS_HOST = "hadoop-master"
 HDFS_PORT = "9000"
 HDFS_BASE_PATH = f"hdfs://{HDFS_HOST}:{HDFS_PORT}"
 
+# Define checkpoint directory
+checkpoint_dir = f"{HDFS_BASE_PATH}/checkpoints/earthquake_stream"
+logger.info(f"Setting up checkpoint directory: {checkpoint_dir}")
+
 # Create Spark session with Kafka connector
 logger.info("Initializing Spark session...")
 spark = SparkSession.builder \
@@ -46,8 +50,6 @@ spark = SparkSession.builder \
     .getOrCreate()
 
 # Enable checkpointing for fault tolerance
-checkpoint_dir = f"{HDFS_BASE_PATH}/checkpoints/earthquake_stream"
-logger.info(f"Setting up checkpoint directory: {checkpoint_dir}")
 spark.sparkContext.setCheckpointDir(checkpoint_dir)
 
 # Kafka configuration
