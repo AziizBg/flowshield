@@ -1,27 +1,29 @@
 """
-Enhanced Earthquake and Fire Data Consumer using Spark Structured Streaming and Kafka
+Earthquake and Fire Data Consumer - Alternative Storage Version
 
-This improved version addresses several issues in the original code and adds new features:
-1. Fixed HBase connectivity and schema mapping
-2. Added proper error handling and monitoring
-3. Improved deduplication with watermarking
-4. Added data validation and quality checks
-5. Enhanced configuration management
-6. Added metrics and monitoring capabilities
+This version avoids HBase connector issues by providing multiple storage options:
+1. JSON files (for debugging)
+2. Parquet files (for analytics)
+3. Console output (for testing)
+4. HBase REST API (when available)
+
+Run with:
+spark-submit --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.0 consumer_alternative.py
 """
 
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import (
     from_json, col, expr, struct, lit, to_json, count, 
-    current_timestamp, when, isnan, isnull, window, 
-    sum as spark_sum, avg, max as spark_max
+    current_timestamp, when, window, sum as spark_sum, avg, max as spark_max
 )
-from pyspark.sql.types import StructType, StructField, StringType, DoubleType, TimestampType, IntegerType
+from pyspark.sql.types import StructType, StructField, StringType, DoubleType, TimestampType
 import json
 import datetime
 import logging
 import os
-from typing import Optional
+import requests
+import base64
+import time
 
 # Configure logging
 logging.basicConfig(
@@ -39,20 +41,56 @@ class StreamingConfig:
         self.EARTHQUAKE_TOPIC = os.getenv('EARTHQUAKE_TOPIC', 'earthquakes')
         self.FIRE_TOPIC = os.getenv('FIRE_TOPIC', 'fires')
         
-        # HBase configuration
-        self.HBASE_HOST = os.getenv('HBASE_HOST', 'hadoop-master')
-        self.HBASE_PORT = os.getenv('HBASE_PORT', '2181')
-        self.HBASE_ZOOKEEPER_QUORUM = f"{self.HBASE_HOST}:{self.HBASE_PORT}"
+        # Storage configuration
+        self.OUTPUT_MODE = os.getenv('OUTPUT_MODE', 'console')  # console, json, parquet, hbase_rest
+        self.OUTPUT_PATH = os.getenv('OUTPUT_PATH', '/tmp/flowshield_output')
+        self.HBASE_REST_URL = os.getenv('HBASE_REST_URL', 'http://hadoop-master:8080')
         
         # Processing configuration
         self.CHECKPOINT_DIR = os.getenv('CHECKPOINT_DIR', '/tmp/spark_checkpoints')
         self.PROCESSING_TIME = os.getenv('PROCESSING_TIME', '10 seconds')
         self.WATERMARK_THRESHOLD = os.getenv('WATERMARK_THRESHOLD', '1 hours')
+
+class HBaseRestClient:
+    """Simple HBase REST API client"""
+    
+    def __init__(self, base_url):
+        self.base_url = base_url.rstrip('/')
         
-        # Table names
-        self.EARTHQUAKE_TABLE = 'earthquake_events'
-        self.FIRE_TABLE = 'fire_events'
-        self.METRICS_TABLE = 'event_metrics'
+    def write_row(self, table_name, row_key, data):
+        """Write a single row to HBase via REST API"""
+        try:
+            url = f"{self.base_url}/{table_name}/{row_key}"
+            
+            # Convert data to HBase REST format
+            cells = []
+            for key, value in data.items():
+                if value is not None:
+                    cells.append({
+                        "column": base64.b64encode(f"info:{key}".encode()).decode(),
+                        "timestamp": int(time.time() * 1000),
+                        "$": base64.b64encode(str(value).encode()).decode()
+                    })
+            
+            payload = {
+                "Row": [{
+                    "key": base64.b64encode(row_key.encode()).decode(),
+                    "Cell": cells
+                }]
+            }
+            
+            response = requests.post(
+                url, 
+                json=payload, 
+                headers={"Content-Type": "application/json"},
+                timeout=10
+            )
+            
+            return response.status_code in [200, 201]
+            
+        except Exception as e:
+            logger.error(f"Failed to write to HBase REST: {str(e)}")
+            return False
 
 class DataProcessor:
     """Main data processing class"""
@@ -60,6 +98,7 @@ class DataProcessor:
     def __init__(self, config: StreamingConfig):
         self.config = config
         self.spark = self._create_spark_session()
+        self.hbase_client = HBaseRestClient(config.HBASE_REST_URL) if config.OUTPUT_MODE == 'hbase_rest' else None
         self._setup_schemas()
         
     def _create_spark_session(self) -> SparkSession:
@@ -67,7 +106,7 @@ class DataProcessor:
         logger.info("Initializing Spark session...")
         
         spark = SparkSession.builder \
-            .appName("EnhancedEarthquakeFireStream") \
+            .appName("EarthquakeFireStreamAlternative") \
             .config("spark.sql.streaming.checkpointLocation", self.config.CHECKPOINT_DIR) \
             .config("spark.sql.streaming.schemaInference", "false") \
             .config("spark.master", "local[*]") \
@@ -78,7 +117,6 @@ class DataProcessor:
             .config("spark.sql.adaptive.coalescePartitions.enabled", "true") \
             .getOrCreate()
         
-        # Set log level to reduce noise
         spark.sparkContext.setLogLevel("WARN")
         spark.sparkContext.setCheckpointDir(self.config.CHECKPOINT_DIR)
         
@@ -129,7 +167,7 @@ class DataProcessor:
                 col("partition"),
                 col("offset")
             ).select("data.*", "kafka_timestamp", "partition", "offset") \
-             .filter(col("id").isNotNull())  # Filter out malformed records
+             .filter(col("id").isNotNull())
             
             # Add watermark for late data handling
             watermarked_stream = parsed_stream.withWatermark("time", self.config.WATERMARK_THRESHOLD)
@@ -142,7 +180,7 @@ class DataProcessor:
             raise
     
     def process_earthquake_stream(self, stream):
-        """Process earthquake events with enhanced logic"""
+        """Process earthquake events"""
         logger.info("Processing earthquake stream...")
         
         processed = stream \
@@ -167,17 +205,14 @@ class DataProcessor:
                      (col("magnitude") <= 10), True)
                 .otherwise(False)) \
             .filter(col("is_valid") == True) \
-            .drop("is_valid")
+            .drop("is_valid") \
+            .withColumn("frp", lit(None).cast(DoubleType())) \
+            .dropDuplicates(["id"])
         
-        # Enhanced deduplication with window
-        deduplicated = processed \
-            .dropDuplicates(["id"]) \
-            .withColumn("frp", lit(None).cast(DoubleType()))
-        
-        return deduplicated
+        return processed
     
     def process_fire_stream(self, stream):
-        """Process fire events with enhanced logic"""
+        """Process fire events"""
         logger.info("Processing fire stream...")
         
         processed = stream \
@@ -200,56 +235,149 @@ class DataProcessor:
             .withColumn("place", lit(None).cast(StringType())) \
             .withColumn("url", lit(None).cast(StringType())) \
             .withColumn("status", lit(None).cast(StringType())) \
-            .withColumn("magType", lit(None).cast(StringType()))
+            .withColumn("magType", lit(None).cast(StringType())) \
+            .dropDuplicates(["id"])
         
-        # Enhanced deduplication
-        deduplicated = processed.dropDuplicates(["id"])
-        
-        return deduplicated
+        return processed
     
-    def write_to_console_debug(self, stream, query_name):
-        """Debug output to console"""
+    def write_to_console(self, stream, query_name):
+        """Write stream to console for debugging"""
         return stream.writeStream \
             .outputMode("append") \
             .format("console") \
             .option("truncate", "false") \
             .option("numRows", 20) \
             .trigger(processingTime=self.config.PROCESSING_TIME) \
-            .queryName(f"{query_name}_debug") \
+            .queryName(query_name) \
+            .option("checkpointLocation", f"{self.config.CHECKPOINT_DIR}/{query_name}") \
             .start()
     
-    def write_to_hbase_foreach(self, stream, table_name, query_name):
-        """Write stream to HBase using foreachBatch"""
-        
-        def write_batch_to_hbase(df, epoch_id):
-            if df.count() > 0:
-                logger.info(f"Writing batch {epoch_id} to {table_name} with {df.count()} records")
-                try:
-                    # Convert to HBase format
-                    hbase_df = df.select(
-                        col("id").alias("rowkey"),
-                        to_json(struct([col(c) for c in df.columns])).alias("data")
-                    )
-                    
-                    # For demonstration - in production, use proper HBase connector
-                    hbase_df.write \
-                        .format("console") \
-                        .mode("append") \
-                        .save()
-                    
-                    logger.info(f"Successfully wrote batch {epoch_id} to {table_name}")
-                    
-                except Exception as e:
-                    logger.error(f"Failed to write batch {epoch_id} to {table_name}: {str(e)}")
-                    raise
+    def write_to_json(self, stream, query_name, path_suffix):
+        """Write stream to JSON files"""
+        output_path = f"{self.config.OUTPUT_PATH}/{path_suffix}"
         
         return stream.writeStream \
-            .foreachBatch(write_batch_to_hbase) \
+            .outputMode("append") \
+            .format("json") \
+            .option("path", output_path) \
+            .option("checkpointLocation", f"{self.config.CHECKPOINT_DIR}/{query_name}") \
+            .trigger(processingTime=self.config.PROCESSING_TIME) \
+            .queryName(query_name) \
+            .start()
+    
+    def write_to_parquet(self, stream, query_name, path_suffix):
+        """Write stream to Parquet files with partitioning"""
+        output_path = f"{self.config.OUTPUT_PATH}/{path_suffix}"
+        
+        return stream \
+            .withColumn("year", expr("year(time)")) \
+            .withColumn("month", expr("month(time)")) \
+            .withColumn("day", expr("day(time)")) \
+            .writeStream \
+            .outputMode("append") \
+            .format("parquet") \
+            .option("path", output_path) \
+            .option("checkpointLocation", f"{self.config.CHECKPOINT_DIR}/{query_name}") \
+            .partitionBy("year", "month", "day", "type") \
+            .trigger(processingTime=self.config.PROCESSING_TIME) \
+            .queryName(query_name) \
+            .start()
+    
+    def write_to_hbase_rest(self, stream, query_name, table_name):
+        """Write stream to HBase via REST API"""
+        
+        def write_batch_to_hbase_rest(df, epoch_id):
+            if df.count() > 0:
+                logger.info(f"Writing batch {epoch_id} to HBase table {table_name} via REST")
+                rows = df.collect()
+                success_count = 0
+                
+                for row in rows:
+                    row_data = row.asDict()
+                    row_key = row_data.pop('id')
+                    
+                    # Remove None values
+                    clean_data = {k: v for k, v in row_data.items() if v is not None}
+                    
+                    if self.hbase_client.write_row(table_name, row_key, clean_data):
+                        success_count += 1
+                
+                logger.info(f"Successfully wrote {success_count}/{len(rows)} records to HBase")
+        
+        return stream.writeStream \
+            .foreachBatch(write_batch_to_hbase_rest) \
             .outputMode("append") \
             .trigger(processingTime=self.config.PROCESSING_TIME) \
             .queryName(query_name) \
             .option("checkpointLocation", f"{self.config.CHECKPOINT_DIR}/{query_name}") \
             .start()
+    
+    def create_writer(self, stream, query_name, path_suffix_or_table):
+        """Create appropriate writer based on output mode"""
+        output_mode = self.config.OUTPUT_MODE.lower()
+        
+        if output_mode == 'console':
+            return self.write_to_console(stream, query_name)
+        elif output_mode == 'json':
+            return self.write_to_json(stream, query_name, path_suffix_or_table)
+        elif output_mode == 'parquet':
+            return self.write_to_parquet(stream, query_name, path_suffix_or_table)
+        elif output_mode == 'hbase_rest':
+            return self.write_to_hbase_rest(stream, query_name, path_suffix_or_table)
+        else:
+            logger.warning(f"Unknown output mode: {output_mode}, defaulting to console")
+            return self.write_to_console(stream, query_name)
+    
+    def run_streaming_pipeline(self):
+        """Main method to run the streaming pipeline"""
+        logger.info(f"Starting streaming pipeline with output mode: {self.config.OUTPUT_MODE}")
+        
+        try:
+            # Create Kafka streams
+            earthquake_stream = self.create_kafka_stream(
+                self.config.EARTHQUAKE_TOPIC, 
+                self.earthquake_schema
+            )
+            fire_stream = self.create_kafka_stream(
+                self.config.FIRE_TOPIC, 
+                self.fire_schema
+            )
+            
+            # Process streams
+            processed_earthquakes = self.process_earthquake_stream(earthquake_stream)
+            processed_fires = self.process_fire_stream(fire_stream)
+            
+            # Create metrics stream
+            metrics_stream = self.create_metrics_stream(processed_earthquakes, processed_fires)
+            
+            # Start writing streams based on configuration
+            earthquake_query = self.create_writer(
+                processed_earthquakes, 
+                "earthquake_stream",
+                "earthquakes" if self.config.OUTPUT_MODE in ['json', 'parquet'] else "earthquake_events"
+            )
+            
+            fire_query = self.create_writer(
+                processed_fires, 
+                "fire_stream",
+                "fires" if self.config.OUTPUT_MODE in ['json', 'parquet'] else "fire_events"
+            )
+            
+            metrics_query = self.write_to_console(metrics_stream, "metrics_stream")
+            
+            logger.info("All streaming queries started successfully")
+            logger.info(f"Output mode: {self.config.OUTPUT_MODE}")
+            if self.config.OUTPUT_MODE in ['json', 'parquet']:
+                logger.info(f"Output path: {self.config.OUTPUT_PATH}")
+            
+            # Wait for termination
+            earthquake_query.awaitTermination()
+            
+        except Exception as e:
+            logger.error(f"Pipeline failed: {str(e)}")
+            raise
+        finally:
+            self.spark.stop()
     
     def create_metrics_stream(self, earthquake_stream, fire_stream):
         """Create aggregated metrics stream"""
@@ -271,9 +399,7 @@ class DataProcessor:
                 col("severity"),
                 col("count"),
                 col("avg_magnitude"),
-                col("max_magnitude"),
-                lit(None).cast(DoubleType()).alias("avg_frp"),
-                lit(None).cast(DoubleType()).alias("max_frp")
+                col("max_magnitude")
             )
         
         # Aggregate fire metrics
@@ -292,74 +418,27 @@ class DataProcessor:
                 col("severity"),
                 col("count"),
                 lit(None).cast(DoubleType()).alias("avg_magnitude"),
-                lit(None).cast(DoubleType()).alias("max_magnitude"),
-                col("avg_frp"),
-                col("max_frp")
+                lit(None).cast(DoubleType()).alias("max_magnitude")
             )
         
-        # Union metrics
-        combined_metrics = earthquake_metrics.union(fire_metrics)
-        
-        return combined_metrics
-    
-    def run_streaming_pipeline(self):
-        """Main method to run the streaming pipeline"""
-        logger.info("Starting streaming pipeline...")
-        
-        try:
-            # Create Kafka streams
-            earthquake_stream = self.create_kafka_stream(
-                self.config.EARTHQUAKE_TOPIC, 
-                self.earthquake_schema
-            )
-            fire_stream = self.create_kafka_stream(
-                self.config.FIRE_TOPIC, 
-                self.fire_schema
-            )
-            
-            # Process streams
-            processed_earthquakes = self.process_earthquake_stream(earthquake_stream)
-            processed_fires = self.process_fire_stream(fire_stream)
-            
-            # Create metrics
-            metrics_stream = self.create_metrics_stream(processed_earthquakes, processed_fires)
-            
-            # Start writing streams
-            earthquake_query = self.write_to_hbase_foreach(
-                processed_earthquakes, 
-                self.config.EARTHQUAKE_TABLE,
-                "earthquake_stream"
-            )
-            
-            fire_query = self.write_to_hbase_foreach(
-                processed_fires, 
-                self.config.FIRE_TABLE,
-                "fire_stream"
-            )
-            
-            metrics_query = self.write_to_console_debug(
-                metrics_stream,
-                "metrics_stream"
-            )
-            
-            logger.info("All streaming queries started successfully")
-            
-            # Wait for termination
-            earthquake_query.awaitTermination()
-            fire_query.awaitTermination()
-            metrics_query.awaitTermination()
-            
-        except Exception as e:
-            logger.error(f"Pipeline failed: {str(e)}")
-            raise
-        finally:
-            self.spark.stop()
+        return earthquake_metrics.union(fire_metrics)
 
 def main():
     """Main entry point"""
     try:
         config = StreamingConfig()
         processor = DataProcessor(config)
+        
+        # Print configuration
+        logger.info("=== Configuration ===")
+        logger.info(f"Kafka Bootstrap Servers: {config.KAFKA_BOOTSTRAP_SERVERS}")
+        logger.info(f"Earthquake Topic: {config.EARTHQUAKE_TOPIC}")
+        logger.info(f"Fire Topic: {config.FIRE_TOPIC}")
+        logger.info(f"Output Mode: {config.OUTPUT_MODE}")
+        logger.info(f"Output Path: {config.OUTPUT_PATH}")
+        logger.info(f"Processing Time: {config.PROCESSING_TIME}")
+        logger.info("=====================")
+        
         processor.run_streaming_pipeline()
         
     except KeyboardInterrupt:
