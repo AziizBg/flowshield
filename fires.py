@@ -5,6 +5,7 @@ from geopy.geocoders import Nominatim
 from helpers import get_fire_severity, get_location_info
 import logging
 import time
+import random
 
 # Configure logging
 logging.basicConfig(
@@ -86,12 +87,14 @@ def fetch_fires(numberOfMinutes=1, max_retries=3):
                             latitude = fire_data.get('latitude')
                             longitude = fire_data.get('longitude')
                             
-                            try:
-                                # Add a small delay between geocoding requests to respect rate limits
-                                time.sleep(0.1)  # 100ms delay
-                                city, country = get_location_info(float(latitude), float(longitude))
-                            except Exception as e:
-                                logger.warning(f"Error getting location info: {e}")
+                            # Only geocode 10% of the fires to reduce load
+                            if random.random() < 0.1:  # 10% chance
+                                try:
+                                    city, country = get_location_info(float(latitude), float(longitude))
+                                except Exception as e:
+                                    logger.warning(f"Error getting location info: {e}")
+                                    city, country = "Unknown", "Unknown"
+                            else:
                                 city, country = "Unknown", "Unknown"
                                 
                             frp = float(fire_data.get('frp', 0))
