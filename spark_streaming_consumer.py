@@ -23,6 +23,7 @@ from pyspark.sql.types import StructType, StructField, StringType, DoubleType, T
 import json
 import datetime
 import logging
+from py4j.java_gateway import java_import
 
 # Configure logging
 logging.basicConfig(
@@ -49,11 +50,24 @@ spark = SparkSession.builder \
     .config("spark.master", "local[*]") \
     .config("spark.driver.host", "localhost") \
     .config("spark.driver.bindAddress", "localhost") \
-    .config("hbase.zookeeper.quorum", HBASE_ZOOKEEPER_QUORUM) \
     .getOrCreate()
 
 # Enable checkpointing for fault tolerance
 spark.sparkContext.setCheckpointDir(checkpoint_dir)
+
+# Initialize HBase connection
+java_import(spark._jvm, "org.apache.hadoop.hbase.*")
+java_import(spark._jvm, "org.apache.hadoop.hbase.client.*")
+java_import(spark._jvm, "org.apache.hadoop.hbase.util.*")
+java_import(spark._jvm, "org.apache.hadoop.conf.Configuration")
+
+# Create HBase configuration
+hbase_conf = spark._jvm.Configuration()
+hbase_conf.set("hbase.zookeeper.quorum", HBASE_ZOOKEEPER_QUORUM)
+hbase_conf.set("hbase.zookeeper.property.clientPort", "2181")
+
+# Create HBase connection
+connection = spark._jvm.ConnectionFactory.createConnection(hbase_conf)
 
 # Kafka configuration
 KAFKA_BOOTSTRAP_SERVERS = 'localhost:9092'  # Kafka broker address
@@ -132,22 +146,28 @@ fire_events = fire_stream \
 
 # Function to write to HBase
 def write_to_hbase(df, epoch_id, table_name):
-    # Convert DataFrame to HBase format
-    hbase_data = df.select(
-        col("id").alias("rowkey"),
-        struct(
-            lit("info").alias("cf"),
-            col("*")
-        ).alias("data")
-    )
+    # Get the table
+    table = connection.getTable(spark._jvm.TableName.valueOf(table_name))
     
-    # Write to HBase
-    hbase_data.write \
-        .format("org.apache.hadoop.hbase.spark") \
-        .option("hbase.table", table_name) \
-        .option("hbase.columns.mapping", "rowkey:key,data:info") \
-        .mode("append") \
-        .save()
+    # Convert each row to HBase Put
+    for row in df.collect():
+        put = spark._jvm.Put(spark._jvm.Bytes.toBytes(str(row['id'])))
+        
+        # Add all columns to the Put
+        for field in df.schema.fields:
+            if row[field.name] is not None:
+                value = str(row[field.name])
+                put.addColumn(
+                    spark._jvm.Bytes.toBytes("info"),
+                    spark._jvm.Bytes.toBytes(field.name),
+                    spark._jvm.Bytes.toBytes(value)
+                )
+        
+        # Write to HBase
+        table.put(put)
+    
+    # Close the table
+    table.close()
 
 # Write earthquake events to HBase
 logger.info("Setting up earthquake events write stream to HBase...")
@@ -172,3 +192,6 @@ logger.info("Starting streaming queries...")
 # Wait for both streaming queries to terminate
 earthquake_query.awaitTermination()
 fire_query.awaitTermination()
+
+# Close HBase connection
+connection.close()
