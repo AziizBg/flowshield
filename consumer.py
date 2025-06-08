@@ -304,48 +304,32 @@ class DataProcessor:
             logger.error(f"Failed to create stream for topic {topic}: {str(e)}")
             raise
     
-    def process_earthquake_stream(self, stream):
-        """Process earthquake events"""
-        logger.info("Processing earthquake stream...")
-        
-        # First extract coordinates from ID with careful parsing
-        processed = stream \
+    def _extract_coordinates_from_id(self, df):
+        """Extract latitude and longitude from ID field"""
+        return df \
             .withColumn("id_parts", expr("split(id, '_')")) \
-            .withColumn("extracted_lat", 
-                when(expr("size(id_parts) >= 2"),
-                     expr("cast(id_parts[0] as double)"))
-                .otherwise(lit(None))) \
-            .withColumn("extracted_lon", 
-                when(expr("size(id_parts) >= 2"),
-                     expr("cast(id_parts[1] as double)"))
-                .otherwise(lit(None))) \
-            .withColumn("type", lit("earthquake")) \
-            .withColumn("processed_time", current_timestamp()) \
-            .withColumn("city", 
-                when(col("place").contains(","), 
-                     expr("trim(split(place, ',')[0])"))
-                .otherwise(col("place"))) \
-            .withColumn("country", 
-                when(col("place").contains(","), 
-                     expr("trim(split(place, ',')[1])"))
-                .otherwise(lit("Unknown"))) \
-            .withColumn("severity", 
-                when(col("magnitude") < 4.0, "Low")
-                .when(col("magnitude") < 6.0, "Moderate")
-                .when(col("magnitude") < 7.0, "High")
-                .otherwise("Extreme")) \
+            .withColumn("extracted_lat", expr("cast(id_parts[0] as double)")) \
+            .withColumn("extracted_lon", expr("cast(id_parts[1] as double)"))
+
+    def _add_common_columns(self, df, event_type):
+        """Add common columns to the dataframe"""
+        return df \
+            .withColumn("type", lit(event_type)) \
+            .withColumn("processed_time", current_timestamp())
+
+    def _validate_coordinates(self, df):
+        """Validate coordinates and add is_valid column"""
+        return df \
             .withColumn("is_valid", 
-                when((col("magnitude").isNotNull()) & 
-                     (col("magnitude") >= 0) & 
-                     (col("magnitude") <= 10) &
-                     (col("extracted_lat").isNotNull()) &
+                when((col("extracted_lat").isNotNull()) &
                      (col("extracted_lon").isNotNull()) &
                      (col("extracted_lat").between(-90, 90)) &
                      (col("extracted_lon").between(-180, 180)), True)
-                .otherwise(False)) \
-            .filter(col("is_valid") == True) \
-            .drop("is_valid") \
-            .withColumn("frp", lit(None).cast(DoubleType())) \
+                .otherwise(False))
+
+    def _add_location_info(self, df):
+        """Add location information using geocoding"""
+        return df \
             .withColumn("location_info", get_location(col("extracted_lat"), col("extracted_lon"))) \
             .withColumn("city", 
                 when(col("city").isNull() | (col("city") == "Unknown"), 
@@ -354,10 +338,79 @@ class DataProcessor:
             .withColumn("country", 
                 when(col("country").isNull() | (col("country") == "Unknown"), 
                      col("location_info.country"))
-                .otherwise(col("country"))) \
+                .otherwise(col("country")))
+
+    def _update_coordinates(self, df):
+        """Update original coordinate columns with extracted values"""
+        return df \
             .withColumn("latitude", col("extracted_lat")) \
-            .withColumn("longitude", col("extracted_lon")) \
-            .drop("extracted_lat", "extracted_lon", "location_info", "id_parts") \
+            .withColumn("longitude", col("extracted_lon"))
+
+    def _cleanup_temporary_columns(self, df):
+        """Remove temporary columns used during processing"""
+        return df \
+            .drop("extracted_lat", "extracted_lon", "location_info", "id_parts")
+
+    def process_earthquake_stream(self, stream):
+        """Process earthquake events"""
+        logger.info("Processing earthquake stream...")
+        
+        # Extract coordinates
+        processed = self._extract_coordinates_from_id(stream)
+        
+        # Add common columns
+        processed = self._add_common_columns(processed, "earthquake")
+        
+        # Add processed time
+        processed = processed \
+            .withColumn("processed_time", current_timestamp())
+        
+        # Add city and country
+        processed = processed \
+            .withColumn("city", 
+                when(col("place").contains(","), 
+                     expr("trim(split(place, ',')[0])"))
+                .otherwise(col("place"))) \
+            .withColumn("country", 
+                when(col("place").contains(","), 
+                     expr("trim(split(place, ',')[1])"))
+                .otherwise(lit("Unknown")))
+        
+        # Add severity based on magnitude
+        processed = processed \
+            .withColumn("severity", 
+                when(col("magnitude") < 4.0, "Low")
+                .when(col("magnitude") < 6.0, "Moderate")
+                .when(col("magnitude") < 7.0, "High")
+                .otherwise("Extreme"))
+        
+        # Validate coordinates and magnitude
+        processed = self._validate_coordinates(processed) \
+            .withColumn("is_valid", 
+                when(col("is_valid") & 
+                     (col("magnitude").isNotNull()) & 
+                     (col("magnitude") >= 0) & 
+                     (col("magnitude") <= 10), True)
+                .otherwise(False)) \
+            .filter(col("is_valid") == True) \
+            .drop("is_valid")
+        
+        # Add null columns for fire-specific fields
+        processed = processed \
+            .withColumn("frp", lit(None).cast(DoubleType())) \
+            .withColumn("place", lit(None).cast(StringType())) \
+            .withColumn("url", lit(None).cast(StringType())) \
+            .withColumn("status", lit(None).cast(StringType())) \
+            .withColumn("magType", lit(None).cast(StringType()))
+        
+        # Add location information
+        processed = self._add_location_info(processed)
+        
+        # Update coordinates
+        processed = self._update_coordinates(processed)
+        
+        # Cleanup and deduplicate
+        processed = self._cleanup_temporary_columns(processed) \
             .dropDuplicates(["id"])
         
         return processed
@@ -366,51 +419,46 @@ class DataProcessor:
         """Process fire events"""
         logger.info("Processing fire stream...")
         
-        # First extract coordinates from ID with careful parsing
-        processed = stream \
-            .withColumn("id_parts", expr("split(id, '_-')")) \
-            .withColumn("extracted_lat", 
-                when(expr("size(id_parts) >= 2"),
-                     expr("cast(id_parts[0] as double)"))
-                .otherwise(lit(None))) \
-            .withColumn("extracted_lon", 
-                when(expr("size(id_parts) >= 2"),
-                     expr("cast(id_parts[1] as double)"))
-                .otherwise(lit(None))) \
-            .withColumn("type", lit("fire")) \
-            .withColumn("processed_time", current_timestamp()) \
+        # Extract coordinates
+        processed = self._extract_coordinates_from_id(stream)
+        
+        # Add common columns
+        processed = self._add_common_columns(processed, "fire")
+        
+        # Add severity based on FRP
+        processed = processed \
             .withColumn("severity", 
                 when(col("frp") < 5, "Low")
                 .when(col("frp") < 15, "Moderate")
                 .when(col("frp") < 50, "High")
-                .otherwise("Extreme")) \
+                .otherwise("Extreme"))
+        
+        # Validate coordinates and FRP
+        processed = self._validate_coordinates(processed) \
             .withColumn("is_valid", 
-                when((col("frp").isNotNull()) & 
-                     (col("frp") >= 0) & 
-                     (col("extracted_lat").isNotNull()) &
-                     (col("extracted_lon").isNotNull()) &
-                     (col("extracted_lat").between(-90, 90)) &
-                     (col("extracted_lon").between(-180, 180)), True)
+                when(col("is_valid") & 
+                     (col("frp").isNotNull()) & 
+                     (col("frp") >= 0), True)
                 .otherwise(False)) \
             .filter(col("is_valid") == True) \
-            .drop("is_valid") \
+            .drop("is_valid")
+        
+        # Add null columns for earthquake-specific fields
+        processed = processed \
             .withColumn("magnitude", lit(None).cast(DoubleType())) \
             .withColumn("place", lit(None).cast(StringType())) \
             .withColumn("url", lit(None).cast(StringType())) \
             .withColumn("status", lit(None).cast(StringType())) \
-            .withColumn("magType", lit(None).cast(StringType())) \
-            .withColumn("location_info", get_location(col("extracted_lat"), col("extracted_lon"))) \
-            .withColumn("city", 
-                when(col("city").isNull() | (col("city") == "Unknown"), 
-                     col("location_info.city"))
-                .otherwise(col("city"))) \
-            .withColumn("country", 
-                when(col("country").isNull() | (col("country") == "Unknown"), 
-                     col("location_info.country"))
-                .otherwise(col("country"))) \
-            .withColumn("latitude", col("extracted_lat")) \
-            .withColumn("longitude", col("extracted_lon")) \
-            # .drop("extracted_lat", "extracted_lon", "location_info", "id_parts") \
+            .withColumn("magType", lit(None).cast(StringType()))
+        
+        # Add location information
+        processed = self._add_location_info(processed)
+        
+        # Update coordinates
+        processed = self._update_coordinates(processed)
+        
+        # Cleanup and deduplicate
+        processed = self._cleanup_temporary_columns(processed) \
             .dropDuplicates(["id"])
         
         return processed
