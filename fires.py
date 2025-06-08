@@ -6,6 +6,7 @@ from helpers import get_fire_severity, get_location_info
 import logging
 import time
 import random
+from collections import deque
 
 # Configure logging
 logging.basicConfig(
@@ -19,6 +20,59 @@ geolocator = Nominatim(
     user_agent="flowshield",
     timeout=10  # 10 seconds timeout
 )
+
+def process_batch(rows, headers, three_hours_ago, numberOfMinutes):
+    """Process a batch of rows and return fire events"""
+    fire_events = []
+    for row in rows:
+        try:
+            fire_data = dict(zip(headers, row))
+            acq_date = fire_data.get('acq_date')
+            acq_time = fire_data.get('acq_time')
+
+            if acq_date and acq_time:
+                acq_time = acq_time.zfill(4)  # Pad to 4 digits (HHMM)
+                timestamp_str = f"{acq_date} {acq_time}"
+                fire_dt = datetime.strptime(timestamp_str, "%Y-%m-%d %H%M")
+                
+                # Only process fires within the time window
+                time_diff = three_hours_ago - fire_dt
+                if time_diff.total_seconds() <= (numberOfMinutes * 60):
+                    latitude = fire_data.get('latitude')
+                    longitude = fire_data.get('longitude')
+                    
+                    # Only geocode 10% of the fires to reduce load
+                    if random.random() < 0.1:  # 10% chance
+                        try:
+                            city, country = get_location_info(float(latitude), float(longitude))
+                        except Exception as e:
+                            logger.warning(f"Error getting location info: {e}")
+                            city, country = "Unknown", "Unknown"
+                    else:
+                        city, country = "Unknown", "Unknown"
+                        
+                    frp = float(fire_data.get('frp', 0))
+
+                    # Create a unique ID
+                    fire_id = f"{latitude}_{longitude}_{acq_date}_{acq_time}"
+
+                    fire_info = {
+                        "id": fire_id,
+                        "time": fire_dt.strftime("%Y-%m-%d %H:%M:%S"),
+                        "latitude": latitude,
+                        "longitude": longitude,
+                        "country": country,
+                        "city": city,
+                        "frp": frp,
+                        "type": "fire"
+                    }
+
+                    fire_events.append(fire_info)
+        except Exception as e:
+            logger.warning(f"Error processing fire row: {e}")
+            continue
+            
+    return fire_events
 
 def fetch_fires(numberOfMinutes=1, max_retries=3):
     """
@@ -64,12 +118,17 @@ def fetch_fires(numberOfMinutes=1, max_retries=3):
             three_hours_ago = datetime.utcnow() - timedelta(hours=3)
             logger.info(f"Processing fires after: {three_hours_ago}")
 
+            # Read all rows into memory first to get total count
+            all_rows = list(cr)
+            total_rows = len(all_rows)
+            logger.info(f"Total number of rows to process: {total_rows}")
+
             fire_count = 0
             row_count = 0
-            for row in cr:
+            for row in all_rows:
                 row_count += 1
                 if row_count % 1000 == 0:
-                    logger.info(f"Processed {row_count} rows so far...")
+                    logger.info(f"Processed {row_count}/{total_rows} rows so far...")
                     
                 try:
                     fire_data = dict(zip(headers, row))
@@ -87,15 +146,8 @@ def fetch_fires(numberOfMinutes=1, max_retries=3):
                             latitude = fire_data.get('latitude')
                             longitude = fire_data.get('longitude')
                             
-                            # Only geocode 10% of the fires to reduce load
-                            if random.random() < 0.1:  # 10% chance
-                                try:
-                                    city, country = get_location_info(float(latitude), float(longitude))
-                                except Exception as e:
-                                    logger.warning(f"Error getting location info: {e}")
-                                    city, country = "Unknown", "Unknown"
-                            else:
-                                city, country = "Unknown", "Unknown"
+                            # Temporarily disable geocoding to identify bottleneck
+                            city, country = "Unknown", "Unknown"
                                 
                             frp = float(fire_data.get('frp', 0))
 
@@ -119,7 +171,7 @@ def fetch_fires(numberOfMinutes=1, max_retries=3):
                     logger.warning(f"Error processing fire row: {e}")
                     continue
 
-            logger.info(f"Processed {row_count} total rows and found {fire_count} new fire events")
+            logger.info(f"Processed {total_rows} total rows and found {fire_count} new fire events")
             return fetch_fires.processed_fires
 
         except requests.exceptions.Timeout:
