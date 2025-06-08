@@ -114,6 +114,13 @@ earthquake_events = earthquake_stream \
     .withColumn("longitude", lit(None).cast(DoubleType())) \
     .dropDuplicates(["id"])
 
+# Add debug logging for earthquake stream
+earthquake_events.writeStream \
+    .format("console") \
+    .outputMode("append") \
+    .trigger(processingTime='10 seconds') \
+    .start()
+
 # Process fire stream
 logger.info("Processing fire stream...")
 fire_events = fire_stream \
@@ -125,6 +132,13 @@ fire_events = fire_stream \
     .withColumn("status", lit(None).cast(StringType())) \
     .withColumn("magType", lit(None).cast(StringType())) \
     .dropDuplicates(["id"])
+
+# Add debug logging for fire stream
+fire_events.writeStream \
+    .format("console") \
+    .outputMode("append") \
+    .trigger(processingTime='10 seconds') \
+    .start()
 
 # Write earthquake events to HDFS
 earthquake_output_path = f"{HDFS_BASE_PATH}/events/earthquake"
