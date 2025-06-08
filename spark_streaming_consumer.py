@@ -46,10 +46,17 @@ spark = SparkSession.builder \
     .appName("EarthquakeStream") \
     .config("spark.sql.streaming.checkpointLocation", checkpoint_dir) \
     .config("spark.sql.streaming.schemaInference", "true") \
+    .config("spark.hadoop.dfs.replication", "1") \
+    .config("spark.master", "local[*]") \
+    .config("spark.driver.host", "localhost") \
+    .config("spark.driver.bindAddress", "localhost") \
     .getOrCreate()
 
 # Enable checkpointing for fault tolerance
 spark.sparkContext.setCheckpointDir(checkpoint_dir)
+
+# Set HDFS replication factor
+spark.sparkContext._jsc.hadoopConfiguration().set("dfs.replication", "1")
 
 # Kafka configuration
 KAFKA_BOOTSTRAP_SERVERS = 'localhost:9092'  # Kafka broker address
