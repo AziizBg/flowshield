@@ -129,7 +129,6 @@ class DataProcessor:
             .config("spark.streaming.stopGracefullyOnShutdown", "true") \
             .config("spark.streaming.concurrentJobs", "2") \
             .config("spark.streaming.receiver.maxRate", "500") \
-            # State store optimizations
             .config("spark.sql.streaming.stateStore.providerClass", "org.apache.spark.sql.execution.streaming.state.HDFSBackedStateStoreProvider") \
             .config("spark.sql.streaming.stateStore.minDeltasForSnapshot", "10") \
             .config("spark.sql.streaming.stateStore.rocksdb.formatVersion", "5") \
