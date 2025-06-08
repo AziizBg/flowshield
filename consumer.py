@@ -14,7 +14,8 @@ spark-submit --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.0 consume
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import (
     from_json, col, expr, struct, lit, to_json, count, 
-    current_timestamp, when, window, sum as spark_sum, avg, max as spark_max
+    current_timestamp, when, window, sum as spark_sum, avg, max as spark_max,
+    udf
 )
 from pyspark.sql.types import StructType, StructField, StringType, DoubleType, TimestampType
 import json
@@ -24,6 +25,9 @@ import os
 import requests
 import base64
 import time
+from geopy.geocoders import Nominatim
+from geopy.exc import GeocoderTimedOut, GeocoderServiceError
+from functools import lru_cache
 
 # Configure logging
 logging.basicConfig(
@@ -93,6 +97,40 @@ class HBaseRestClient:
         except Exception as e:
             logger.error(f"Failed to write to HBase REST: {str(e)}")
             return False
+
+class GeoCoder:
+    """Geocoding utility class with caching"""
+    
+    def __init__(self):
+        self.geolocator = Nominatim(user_agent="flowshield")
+        self.cache = {}
+    
+    @lru_cache(maxsize=1000)
+    def get_location_info(self, lat: float, lon: float) -> tuple:
+        """Get city and country from coordinates with caching"""
+        try:
+            location = self.geolocator.reverse(f"{lat}, {lon}", language='en')
+            if location:
+                address = location.raw.get('address', {})
+                city = address.get('city') or address.get('town') or address.get('village') or "Unknown"
+                country = address.get('country') or "Unknown"
+                return city, country
+        except (GeocoderTimedOut, GeocoderServiceError) as e:
+            logger.warning(f"Geocoding failed for coordinates ({lat}, {lon}): {str(e)}")
+        return "Unknown", "Unknown"
+
+# Create a singleton instance
+geocoder = GeoCoder()
+
+def get_location_udf(lat: float, lon: float) -> tuple:
+    """UDF to get location information from coordinates"""
+    return geocoder.get_location_info(lat, lon)
+
+# Register the UDF
+get_location = udf(get_location_udf, StructType([
+    StructField("city", StringType(), True),
+    StructField("country", StringType(), True)
+]))
 
 class DataProcessor:
     """Main data processing class"""
@@ -261,11 +299,23 @@ class DataProcessor:
             .withColumn("is_valid", 
                 when((col("magnitude").isNotNull()) & 
                      (col("magnitude") >= 0) & 
-                     (col("magnitude") <= 10), True)
+                     (col("magnitude") <= 10) &
+                     (col("latitude").isNotNull()) &
+                     (col("longitude").isNotNull()) &
+                     (col("latitude").between(-90, 90)) &
+                     (col("longitude").between(-180, 180)), True)
                 .otherwise(False)) \
             .filter(col("is_valid") == True) \
             .drop("is_valid") \
             .withColumn("frp", lit(None).cast(DoubleType())) \
+            .withColumn("city", 
+                when(col("city").isNull() | (col("city") == "Unknown"), 
+                     expr("concat(cast(latitude as string), '_', cast(longitude as string))"))
+                .otherwise(col("city"))) \
+            .withColumn("country", 
+                when(col("country").isNull() | (col("country") == "Unknown"), 
+                     lit("Unknown"))
+                .otherwise(col("country"))) \
             .dropDuplicates(["id"])
         
         return processed
@@ -285,6 +335,8 @@ class DataProcessor:
             .withColumn("is_valid", 
                 when((col("frp").isNotNull()) & 
                      (col("frp") >= 0) & 
+                     (col("latitude").isNotNull()) &
+                     (col("longitude").isNotNull()) &
                      (col("latitude").between(-90, 90)) &
                      (col("longitude").between(-180, 180)), True)
                 .otherwise(False)) \
@@ -295,6 +347,16 @@ class DataProcessor:
             .withColumn("url", lit(None).cast(StringType())) \
             .withColumn("status", lit(None).cast(StringType())) \
             .withColumn("magType", lit(None).cast(StringType())) \
+            .withColumn("location_info", get_location(col("latitude"), col("longitude"))) \
+            .withColumn("city", 
+                when(col("city").isNull() | (col("city") == "Unknown"), 
+                     col("location_info.city"))
+                .otherwise(col("city"))) \
+            .withColumn("country", 
+                when(col("country").isNull() | (col("country") == "Unknown"), 
+                     col("location_info.country"))
+                .otherwise(col("country"))) \
+            .drop("location_info") \
             .dropDuplicates(["id"])
         
         return processed
