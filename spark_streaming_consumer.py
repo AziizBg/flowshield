@@ -40,7 +40,9 @@ HDFS_BASE_PATH = f"hdfs://{HDFS_HOST}:{HDFS_PORT}"
 logger.info("Initializing Spark session...")
 spark = SparkSession.builder \
     .appName("EarthquakeStream") \
-    .config("spark.jars.packages", "org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.0") \
+    .config("spark.jars.packages", "org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.0,org.apache.kafka:kafka-clients:3.5.0") \
+    .config("spark.sql.streaming.checkpointLocation", checkpoint_dir) \
+    .config("spark.sql.streaming.schemaInference", "true") \
     .getOrCreate()
 
 # Enable checkpointing for fault tolerance
