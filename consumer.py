@@ -410,7 +410,7 @@ class DataProcessor:
                 .otherwise(col("country"))) \
             .withColumn("latitude", col("extracted_lat")) \
             .withColumn("longitude", col("extracted_lon")) \
-            .drop("extracted_lat", "extracted_lon", "location_info", "id_parts") \
+            # .drop("extracted_lat", "extracted_lon", "location_info", "id_parts") \
             .dropDuplicates(["id"])
         
         return processed
