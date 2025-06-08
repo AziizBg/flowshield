@@ -119,15 +119,23 @@ class GeoCoder:
             logger.warning(f"Geocoding failed for coordinates ({lat}, {lon}): {str(e)}")
         return "Unknown", "Unknown"
 
-# Create a singleton instance
-geocoder = GeoCoder()
-
-def get_location_udf(lat: float, lon: float) -> tuple:
-    """UDF to get location information from coordinates"""
-    return geocoder.get_location_info(lat, lon)
+# Create a simple geocoding function
+def get_location_info(lat: float, lon: float) -> tuple:
+    """Get city and country from coordinates"""
+    try:
+        geolocator = Nominatim(user_agent="flowshield")
+        location = geolocator.reverse(f"{lat}, {lon}", language='en')
+        if location:
+            address = location.raw.get('address', {})
+            city = address.get('city') or address.get('town') or address.get('village') or "Unknown"
+            country = address.get('country') or "Unknown"
+            return city, country
+    except (GeocoderTimedOut, GeocoderServiceError) as e:
+        logger.warning(f"Geocoding failed for coordinates ({lat}, {lon}): {str(e)}")
+    return "Unknown", "Unknown"
 
 # Register the UDF
-get_location = udf(get_location_udf, StructType([
+get_location = udf(get_location_info, StructType([
     StructField("city", StringType(), True),
     StructField("country", StringType(), True)
 ]))
@@ -140,6 +148,12 @@ class DataProcessor:
         self.spark = self._create_spark_session()
         self.hbase_client = HBaseRestClient(config.HBASE_REST_URL) if config.OUTPUT_MODE == 'hbase_rest' else None
         self._setup_schemas()
+        
+        # Register the UDF in the Spark session
+        self.spark.udf.register("get_location", get_location_info, StructType([
+            StructField("city", StringType(), True),
+            StructField("country", StringType(), True)
+        ]))
         
     def _create_spark_session(self) -> SparkSession:
         """Create and configure Spark session"""
