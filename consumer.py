@@ -127,6 +127,10 @@ class DataProcessor:
             .config("spark.streaming.stopGracefullyOnShutdown", "true") \
             .config("spark.streaming.concurrentJobs", "3") \
             .config("spark.streaming.receiver.maxRate", "1000") \
+            .config("spark.sql.streaming.stateStore.providerClass", "org.apache.spark.sql.execution.streaming.state.HDFSBackedStateStoreProvider") \
+            .config("spark.sql.streaming.stateStore.minDeltasForSnapshot", "10") \
+            .config("spark.sql.streaming.stateStore.rocksdb.formatVersion", "5") \
+            .config("spark.sql.streaming.stateStore.rocksdb.enableStatistics", "true") \
             .getOrCreate()
         
         spark.sparkContext.setLogLevel("WARN")
@@ -175,11 +179,27 @@ class DataProcessor:
                 .option("kafka.consumer.enable.auto.commit", "false") \
                 .option("kafka.consumer.max.poll.records", "500") \
                 .option("kafka.consumer.auto.offset.reset", "latest") \
+                .option("kafka.consumer.group.id", f"spark-streaming-{topic}") \
+                .option("kafka.consumer.client.id", f"spark-streaming-{topic}-{int(time.time())}") \
                 .load()
             
             # Add debug logging for raw Kafka messages
             stream = stream.withColumn("debug_timestamp", current_timestamp())
             logger.info(f"Raw Kafka stream created for {topic}")
+            
+            # Log the raw data for debugging
+            def debug_raw_data(df, epoch_id):
+                if df.count() > 0:
+                    logger.info(f"Raw data in batch {epoch_id} for {topic}:")
+                    df.select("value").show(truncate=False)
+                else:
+                    logger.warning(f"No raw data in batch {epoch_id} for {topic}")
+            
+            stream = stream.writeStream \
+                .foreachBatch(debug_raw_data) \
+                .outputMode("append") \
+                .trigger(processingTime="1 second") \
+                .start()
             
             # Parse JSON with error handling
             parsed_stream = stream.select(
