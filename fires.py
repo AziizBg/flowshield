@@ -58,7 +58,12 @@ def fetch_fires(numberOfMinutes=1, max_retries=3):
             logger.info(f"Processing fires after: {three_hours_ago}")
 
             fire_count = 0
+            row_count = 0
             for row in cr:
+                row_count += 1
+                if row_count % 1000 == 0:
+                    logger.info(f"Processed {row_count} rows so far...")
+                    
                 try:
                     fire_data = dict(zip(headers, row))
                     acq_date = fire_data.get('acq_date')
@@ -103,7 +108,7 @@ def fetch_fires(numberOfMinutes=1, max_retries=3):
                     logger.warning(f"Error processing fire row: {e}")
                     continue
 
-            logger.info(f"Processed {fire_count} new fire events")
+            logger.info(f"Processed {row_count} total rows and found {fire_count} new fire events")
             return fetch_fires.processed_fires
 
         except requests.exceptions.Timeout:
