@@ -20,13 +20,13 @@ export function EventFeed({ events, onEventClick }: EventFeedProps) {
   const getSeverityVariant = (severity: string) => {
     switch (severity) {
       case "high":
-        return "destructive"
+        return "bg-red-50 text-red-600 border-red-200"
       case "moderate":
-        return "default"
+        return "bg-yellow-50 text-yellow-600 border-yellow-200"
       case "low":
-        return "secondary"
+        return "bg-green-50 text-green-600 border-green-200"
       default:
-        return "outline"
+        return "bg-gray-50 text-gray-600 border-gray-200"
     }
   }
 
@@ -67,16 +67,16 @@ export function EventFeed({ events, onEventClick }: EventFeedProps) {
               key={event.id}
               onClick={() => handleEventClick(event)}
               className={`p-4 bg-white rounded-lg shadow-sm border transition-all cursor-pointer group ${selectedEventId === event.id
-                ? "border-blue-400 shadow-md bg-blue-50"
-                : "border-gray-100 hover:shadow-md hover:border-blue-200"
+                  ? "border-blue-200 shadow-md bg-blue-50"
+                  : "border-gray-100 hover:shadow-md hover:border-blue-100"
                 }`}
             >
               <div className="flex items-start justify-between">
                 <div className="space-y-1">
                   <div className="flex items-center gap-2">
                     <span className={`transition-colors ${selectedEventId === event.id
-                      ? "text-blue-600"
-                      : "text-gray-500 group-hover:text-blue-600"
+                        ? "text-blue-500"
+                        : "text-gray-400 group-hover:text-blue-500"
                       }`}>
                       {event.type === "earthquake" ? (
                         <Zap className="h-4 w-4" />
@@ -85,14 +85,14 @@ export function EventFeed({ events, onEventClick }: EventFeedProps) {
                       )}
                     </span>
                     <span className={`text-sm font-medium transition-colors ${selectedEventId === event.id
-                      ? "text-blue-600"
-                      : "text-gray-900 group-hover:text-blue-600"
+                        ? "text-blue-600"
+                        : "text-gray-900 group-hover:text-blue-600"
                       }`}>
                       {event.type === "earthquake" ? "Earthquake" : "Fire"}
                     </span>
                     <Badge
-                      variant={getSeverityVariant(event.severity)}
-                      className="text-xs"
+                      variant="outline"
+                      className={`text-xs ${getSeverityVariant(event.severity)}`}
                     >
                       {event.severity.charAt(0).toUpperCase() + event.severity.slice(1)}
                     </Badge>
