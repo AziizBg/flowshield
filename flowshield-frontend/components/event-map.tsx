@@ -613,65 +613,7 @@ export function EventMap({ events, selectedEventId, onEventSelect }: EventMapPro
           </div>
           <div className="flex items-center space-x-2">
             {/* Map Style Selector */}
-            <Select value={mapStyle} onValueChange={(value: MapStyle) => setMapStyle(value)}>
-              <SelectTrigger className="w-32">
-                <SelectValue>
-                  <div className="flex items-center space-x-2">
-                    <styleInfo.icon className="h-4 w-4" />
-                    <span className="hidden sm:inline">{styleInfo.name}</span>
-                  </div>
-                </SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="street">
-                  <div className="flex items-center space-x-2">
-                    <Map className="h-4 w-4" />
-                    <div>
-                      <div>Street Map</div>
-                      <div className="text-xs text-muted-foreground">Roads and labels</div>
-                    </div>
-                  </div>
-                </SelectItem>
-                <SelectItem value="satellite">
-                  <div className="flex items-center space-x-2">
-                    <Satellite className="h-4 w-4" />
-                    <div>
-                      <div>Satellite</div>
-                      <div className="text-xs text-muted-foreground">High-res imagery</div>
-                    </div>
-                  </div>
-                </SelectItem>
-                <SelectItem value="terrain">
-                  <div className="flex items-center space-x-2">
-                    <Map className="h-4 w-4" />
-                    <div>
-                      <div>Terrain</div>
-                      <div className="text-xs text-muted-foreground">Topographic data</div>
-                    </div>
-                  </div>
-                </SelectItem>
-                <SelectItem value="dark">
-                  <div className="flex items-center space-x-2">
-                    <Map className="h-4 w-4" />
-                    <div>
-                      <div>Dark Mode</div>
-                      <div className="text-xs text-muted-foreground">Low-light theme</div>
-                    </div>
-                  </div>
-                </SelectItem>
-              </SelectContent>
-            </Select>
 
-            {/* Zoom Controls */}
-            <Button variant="outline" size="sm" onClick={handleZoomOut} disabled={mapState.zoom <= getMinZoomLevel()}>
-              <ZoomOut className="h-4 w-4" />
-            </Button>
-            <Button variant="outline" size="sm" onClick={handleZoomIn} disabled={mapState.zoom >= 18}>
-              <ZoomIn className="h-4 w-4" />
-            </Button>
-            <Button variant="outline" size="sm" onClick={handleReset}>
-              <RotateCcw className="h-4 w-4" />
-            </Button>
           </div>
         </CardTitle>
       </CardHeader>
