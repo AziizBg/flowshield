@@ -1,6 +1,7 @@
 import { AlertTriangle, Activity, RefreshCw, Clock } from "lucide-react"
 import { Badge } from "../ui/badge"
 import { Button } from "../ui/button"
+import { ReactNode } from "react"
 
 interface HeaderProps {
     useRealData: boolean
@@ -10,6 +11,7 @@ interface HeaderProps {
     onToggleDataMode: () => void
     onToggleRealTime: () => void
     onRefresh: () => void
+    historicalDataLink?: ReactNode
 }
 
 export function Header({
@@ -20,6 +22,7 @@ export function Header({
     onToggleDataMode,
     onToggleRealTime,
     onRefresh,
+    historicalDataLink,
 }: HeaderProps) {
     return (
         <div className="flex flex-col gap-4 p-4 bg-white rounded-lg shadow-sm border border-gray-100">
@@ -31,6 +34,7 @@ export function Header({
                     </p>
                 </div>
                 <div className="flex items-center gap-2">
+                    {historicalDataLink}
                     <div className="flex items-center gap-1.5 px-3 py-1.5 bg-green-50 rounded-full">
                         <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
                         <span className="text-sm font-medium text-green-700">Live</span>

@@ -16,8 +16,9 @@ import { Loading } from "./components/loading"
 import { ErrorBoundary } from "./components/error-boundary"
 import { useEvents } from "./hooks/useEvents"
 import type { Event } from "@/lib/mock-data"
+import Link from "next/link"
 
-export default function Dashboard() {
+export default function StreamDashboard() {
   const [selectedEventType, setSelectedEventType] = useState<"all" | "earthquake" | "fire">("all")
   const [selectedSeverity, setSelectedSeverity] = useState<"all" | "low" | "moderate" | "high">("all")
   const [selectedTimeRange, setSelectedTimeRange] = useState<"12h" | "6h" | "5h" | "3h" | "2h" | "1h" | "30m" | "1m">("1h")
@@ -68,12 +69,21 @@ export default function Dashboard() {
         <div className="container mx-auto px-4 py-6 space-y-6">
           <Header
             lastUpdated={new Date()}
-            useRealData={false}
-            isRealTime={false}
+            useRealData={true}
+            isRealTime={true}
             isLoading={isLoading}
             onToggleDataMode={() => { }}
             onToggleRealTime={() => { }}
             onRefresh={() => { }}
+            historicalDataLink={
+              <Link
+                href="/batch"
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-50 hover:bg-gray-100 text-gray-500 rounded-full transition-colors"
+              >
+                <Clock className="h-4 w-4" />
+                <span className="text-sm font-medium">Historical</span>
+              </Link>
+            }
           />
 
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
@@ -95,7 +105,7 @@ export default function Dashboard() {
               <div className="relative">
                 <input
                   type="text"
-                  placeholder="Search events..."
+                  placeholder="Search live events..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   className="w-full px-4 py-2 pl-10 bg-white rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
@@ -108,12 +118,12 @@ export default function Dashboard() {
                 {isLoading ? (
                   <div className="flex items-center gap-2">
                     <div className="w-5 h-5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
-                    <span className="text-sm text-gray-600">{loadingStatus || "Loading data..."}</span>
+                    <span className="text-sm text-gray-600">{loadingStatus || "Loading live data..."}</span>
                   </div>
                 ) : (
                   <div className="flex items-center gap-2 text-sm text-gray-600">
-                    <Clock className="h-4 w-4" />
-                    <span>Last updated: {lastUpdated?.toLocaleString()}</span>
+                    <Zap className="h-4 w-4 text-green-500" />
+                    <span>Live data - Last updated: {lastUpdated?.toLocaleString()}</span>
                   </div>
                 )}
                 {error && (
