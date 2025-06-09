@@ -119,6 +119,135 @@ class GeoCoder:
             logger.warning(f"Geocoding failed for coordinates ({lat}, {lon}): {str(e)}")
         return "Unknown", "Unknown"
 
+class AlertManager:
+    """Manages alerting functionality for events"""
+    
+    def __init__(self):
+        self.smtp_server = os.getenv('SMTP_SERVER', 'smtp.gmail.com')
+        self.smtp_port = int(os.getenv('SMTP_PORT', '587'))
+        self.alert_email = os.getenv('ALERT_EMAIL')
+        self.alert_email_password = os.getenv('ALERT_EMAIL_PASSWORD')
+        self.alert_recipient = os.getenv('ALERT_RECIPIENT')
+        self.webhook_url = os.getenv('ALERT_WEBHOOK_URL')
+        
+        # Alert thresholds - including low levels for testing
+        self.earthquake_thresholds = {
+            'Low': 2.0,      # Alert for earthquakes >= 2.0 (for testing)
+            'Moderate': 4.0,  # Alert for earthquakes >= 4.0 (for testing)
+            'High': 6.0,     # Alert for earthquakes >= 6.0
+            'Extreme': 7.0   # Alert for earthquakes >= 7.0
+        }
+        self.fire_thresholds = {
+            'Low': 1.0,      # Alert for fires with FRP >= 1.0 (for testing)
+            'Moderate': 5.0,  # Alert for fires with FRP >= 5.0 (for testing)
+            'High': 50.0,    # Alert for fires with FRP >= 50
+            'Extreme': 100.0 # Alert for fires with FRP >= 100
+        }
+        
+        # Reduced alert cooldown for testing (1 minute instead of 5)
+        self.alert_cooldown = 60  # 1 minute
+        self.last_alert_time = {}
+    
+    def should_alert(self, event_type: str, severity: str, value: float) -> bool:
+        """Determine if an alert should be sent based on severity and cooldown"""
+        current_time = time.time()
+        alert_key = f"{event_type}_{severity}"
+        
+        # Check if we're past the cooldown period
+        if alert_key in self.last_alert_time:
+            if current_time - self.last_alert_time[alert_key] < self.alert_cooldown:
+                return False
+        
+        # Check if the event exceeds the threshold
+        if event_type == 'earthquake':
+            threshold = self.earthquake_thresholds.get(severity)
+            if threshold and value >= threshold:
+                self.last_alert_time[alert_key] = current_time
+                return True
+        elif event_type == 'fire':
+            threshold = self.fire_thresholds.get(severity)
+            if threshold and value >= threshold:
+                self.last_alert_time[alert_key] = current_time
+                return True
+        
+        return False
+    
+    def send_email_alert(self, event_type: str, severity: str, value: float, location: str):
+        """Send email alert"""
+        if not all([self.alert_email, self.alert_email_password, self.alert_recipient]):
+            logger.warning("Email alert configuration incomplete")
+            return
+        
+        try:
+            import smtplib
+            from email.mime.text import MIMEText
+            from email.mime.multipart import MIMEMultipart
+            
+            msg = MIMEMultipart()
+            msg['From'] = self.alert_email
+            msg['To'] = self.alert_recipient
+            msg['Subject'] = f"ALERT: {severity} {event_type.title()} Detected"
+            
+            body = f"""
+            ALERT: {severity} {event_type.title()} Detected
+            
+            Details:
+            - Type: {event_type}
+            - Severity: {severity}
+            - Value: {value}
+            - Location: {location}
+            - Time: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+            
+            This is an automated alert from FlowShield.
+            """
+            
+            msg.attach(MIMEText(body, 'plain'))
+            
+            with smtplib.SMTP(self.smtp_server, self.smtp_port) as server:
+                server.starttls()
+                server.login(self.alert_email, self.alert_email_password)
+                server.send_message(msg)
+            
+            logger.info(f"Email alert sent for {event_type} {severity}")
+            
+        except Exception as e:
+            logger.error(f"Failed to send email alert: {str(e)}")
+    
+    def send_webhook_alert(self, event_type: str, severity: str, value: float, location: str):
+        """Send webhook alert"""
+        if not self.webhook_url:
+            logger.warning("Webhook URL not configured")
+            return
+        
+        try:
+            payload = {
+                "text": f"🚨 *{severity} {event_type.title()} Alert*\n" +
+                       f"*Value:* {value}\n" +
+                       f"*Location:* {location}\n" +
+                       f"*Time:* {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+            }
+            
+            response = requests.post(
+                self.webhook_url,
+                json=payload,
+                headers={'Content-Type': 'application/json'},
+                timeout=10
+            )
+            
+            if response.status_code == 200:
+                logger.info(f"Webhook alert sent for {event_type} {severity}")
+            else:
+                logger.error(f"Failed to send webhook alert: {response.status_code} - {response.text}")
+                
+        except Exception as e:
+            logger.error(f"Failed to send webhook alert: {str(e)}")
+    
+    def process_alert(self, event_type: str, severity: str, value: float, location: str):
+        """Process and send alerts if conditions are met"""
+        if self.should_alert(event_type, severity, value):
+            self.send_email_alert(event_type, severity, value, location)
+            self.send_webhook_alert(event_type, severity, value, location)
+
 # Create a simple geocoding function
 def get_location_info(lat: float, lon: float) -> tuple:
     """Get city and country from coordinates with retry logic"""
@@ -161,6 +290,7 @@ class DataProcessor:
         self.config = config
         self.spark = self._create_spark_session()
         self.hbase_client = HBaseRestClient(config.HBASE_REST_URL) if config.OUTPUT_MODE == 'hbase_rest' else None
+        self.alert_manager = AlertManager()  # Initialize AlertManager
         self._setup_schemas()
         
         # Register the UDF in the Spark session
@@ -427,6 +557,26 @@ class DataProcessor:
         processed = self._cleanup_temporary_columns(processed) \
             .dropDuplicates(["id"])
         
+        # Add alert processing
+        def process_earthquake_alerts(df, epoch_id):
+            if df.count() > 0:
+                rows = df.collect()
+                for row in rows:
+                    location = f"{row.city}, {row.country}"
+                    self.alert_manager.process_alert(
+                        event_type="earthquake",
+                        severity=row.severity,
+                        value=row.magnitude,
+                        location=location
+                    )
+        
+        # Add alert processing to the stream
+        processed = processed.writeStream \
+            .foreachBatch(process_earthquake_alerts) \
+            .outputMode("append") \
+            .trigger(processingTime="5 seconds") \
+            .start()
+        
         return processed
     
     def process_fire_stream(self, stream):
@@ -474,6 +624,26 @@ class DataProcessor:
         # Cleanup and deduplicate
         processed = self._cleanup_temporary_columns(processed) \
             .dropDuplicates(["id"])
+        
+        # Add alert processing
+        def process_fire_alerts(df, epoch_id):
+            if df.count() > 0:
+                rows = df.collect()
+                for row in rows:
+                    location = f"{row.city}, {row.country}"
+                    self.alert_manager.process_alert(
+                        event_type="fire",
+                        severity=row.severity,
+                        value=row.frp,
+                        location=location
+                    )
+        
+        # Add alert processing to the stream
+        processed = processed.writeStream \
+            .foreachBatch(process_fire_alerts) \
+            .outputMode("append") \
+            .trigger(processingTime="5 seconds") \
+            .start()
         
         return processed
     
