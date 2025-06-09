@@ -1,3 +1,17 @@
+"""
+Fire Detection and Monitoring System
+
+This module provides functionality to fetch and process real-time fire data from NASA's FIRMS (Fire Information for Resource Management System) API.
+It processes satellite data to detect and track fire events worldwide, including their location, intensity, and temporal information.
+
+Key Features:
+- Real-time fire detection using NASA FIRMS API
+- Geocoding of fire locations to city and country level
+- Fire severity assessment
+- Batch processing of fire events
+- Robust error handling and retry mechanisms
+"""
+
 from datetime import datetime, timedelta
 import requests
 import csv
@@ -8,192 +22,143 @@ import time
 import random
 from collections import deque
 
-# Configure logging
+# Configure logging with timestamp, log level, and message format
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
 
-# Initialize geocoder with longer timeout and user agent
+# Initialize geocoder with custom settings for better reliability
 geolocator = Nominatim(
-    user_agent="flowshield",
-    timeout=10  # 10 seconds timeout
+    user_agent="flowshield",  # Custom user agent for API requests
+    timeout=10  # 10 seconds timeout for geocoding requests
 )
 
 def process_batch(rows, headers, three_hours_ago, numberOfMinutes):
-    """Process a batch of rows and return fire events"""
+    """
+    Process a batch of fire detection data and convert it into structured fire events.
+    
+    Args:
+        rows (list): List of rows containing fire detection data
+        headers (list): Column headers for the data
+        three_hours_ago (datetime): Timestamp for filtering recent fires
+        numberOfMinutes (int): Time window in minutes for filtering fires
+        
+    Returns:
+        list: List of processed fire events with location and metadata
+    """
     fire_events = []
     for row in rows:
         try:
+            # Convert row data to dictionary using headers
             fire_data = dict(zip(headers, row))
             acq_date = fire_data.get('acq_date')
             acq_time = fire_data.get('acq_time')
 
-            if acq_date and acq_time:
-                acq_time = acq_time.zfill(4)  # Pad to 4 digits (HHMM)
-                timestamp_str = f"{acq_date} {acq_time}"
-                fire_dt = datetime.strptime(timestamp_str, "%Y-%m-%d %H%M")
-                
-                # Only process fires within the time window
-                time_diff = three_hours_ago - fire_dt
-                if time_diff.total_seconds() <= (numberOfMinutes * 60):
-                    latitude = fire_data.get('latitude')
-                    longitude = fire_data.get('longitude')
-                    
-                    # Only geocode 10% of the fires to reduce load
-                    if random.random() < 0.1:  # 10% chance
-                        try:
-                            city, country = get_location_info(float(latitude), float(longitude))
-                        except Exception as e:
-                            logger.warning(f"Error getting location info: {e}")
-                            city, country = "Unknown", "Unknown"
-                    else:
-                        city, country = "Unknown", "Unknown"
-                        
-                    frp = float(fire_data.get('frp', 0))
+            # Skip rows with missing date or time
+            if not (acq_date and acq_time):
+                continue
 
-                    # Create a unique ID
-                    fire_id = f"{latitude}_{longitude}_{acq_date}_{acq_time}"
+            # Parse timestamp and filter based on time window
+            fire_dt = datetime.strptime(f"{acq_date} {acq_time.zfill(4)}", "%Y-%m-%d %H%M")
+            if (three_hours_ago - fire_dt).total_seconds() > (numberOfMinutes * 60):
+                continue
 
-                    fire_info = {
-                        "id": fire_id,
-                        "time": fire_dt.strftime("%Y-%m-%d %H:%M:%S"),
-                        "latitude": latitude,
-                        "longitude": longitude,
-                        "country": country,
-                        "city": city,
-                        "frp": frp,
-                        "type": "fire"
-                    }
+            # Extract and process location data
+            latitude = fire_data.get('latitude')
+            longitude = fire_data.get('longitude')
+            try:
+                city, country = get_location_info(float(latitude), float(longitude))
+            except Exception as e:
+                logger.warning(f"Error getting location info: {e}")
+                city, country = "Unknown", "Unknown"
 
-                    fire_events.append(fire_info)
+            # Create structured fire event
+            fire_events.append({
+                "id": f"{latitude}_{longitude}_{acq_date}_{acq_time}",
+                "time": fire_dt.strftime("%Y-%m-%d %H:%M:%S"),
+                "latitude": latitude,
+                "longitude": longitude,
+                "country": country,
+                "city": city,
+                "frp": float(fire_data.get('frp', 0)),  # Fire Radiative Power
+                "type": "fire"
+            })
         except Exception as e:
             logger.warning(f"Error processing fire row: {e}")
-            continue
             
     return fire_events
 
 def fetch_fires(numberOfMinutes=1, max_retries=3):
     """
-    Fetch fire data from NASA FIRMS API.
+    Fetch and process fire data from NASA FIRMS API.
+    
+    This function retrieves real-time fire detection data from NASA's FIRMS API,
+    processes it to extract relevant information, and returns structured fire events.
+    It includes retry logic for handling API failures and network issues.
     
     Args:
-        numberOfMinutes (int): Number of minutes of data to fetch
-        max_retries (int): Maximum number of retry attempts
+        numberOfMinutes (int, optional): Time window in minutes for filtering fires. Defaults to 1.
+        max_retries (int, optional): Maximum number of retry attempts for API calls. Defaults to 3.
         
     Returns:
-        list: List of fire events
+        list: List of processed fire events with the following structure:
+            - id: Unique identifier for the fire event
+            - time: Timestamp of the fire detection
+            - latitude: Geographic latitude
+            - longitude: Geographic longitude
+            - country: Country where the fire was detected
+            - city: Nearest city to the fire
+            - frp: Fire Radiative Power (intensity measure)
+            - type: Event type (always "fire")
     """
-    today = datetime.utcnow().strftime("%Y-%m-%d")
-    url = f'https://firms.modaps.eosdis.nasa.gov/api/area/csv/477785c4a607ad274bbbb9cbdcdd6bef/VIIRS_SNPP_NRT/world/1/{today}'
+    # NASA FIRMS API endpoint with authentication token
+    url = f'https://firms.modaps.eosdis.nasa.gov/api/area/csv/477785c4a607ad274bbbb9cbdcdd6bef/VIIRS_SNPP_NRT/world/1/{datetime.utcnow().strftime("%Y-%m-%d")}'
     
-    # Keep track of processed fires
+    # Initialize processed fires list if not exists (persists between function calls)
     if not hasattr(fetch_fires, "processed_fires"):
         fetch_fires.processed_fires = []
         logger.info("Initialized processed_fires list")
 
     for attempt in range(max_retries):
         try:
-            logger.info(f"Fetching fires from {numberOfMinutes} minutes starting from one hour ago (Attempt {attempt + 1}/{max_retries})")
-            logger.info(f"Requesting data from URL: {url}")
-
-            # Add timeout and verify=False to handle SSL issues
-            response = requests.get(url, timeout=30, verify=False)
-            logger.info(f"Received response with status code: {response.status_code}")
+            logger.info(f"Fetching fires from {numberOfMinutes} minutes ago (Attempt {attempt + 1}/{max_retries})")
             
+            # Make API request with timeout
+            response = requests.get(url, timeout=30, verify=False)
             if response.status_code != 200:
                 logger.error(f"Failed to fetch fire data. Status code: {response.status_code}")
                 if attempt < max_retries - 1:
-                    time.sleep(5)  # Wait before retrying
+                    time.sleep(5)
                     continue
                 return []
 
+            # Process CSV response
             decoded_content = response.content.decode('utf-8')
             cr = csv.reader(decoded_content.splitlines(), delimiter=',')
             headers = next(cr)
-            logger.info(f"CSV headers: {headers}")
-
-            # Get the reference time as 3 hours ago
-            three_hours_ago = datetime.utcnow() - timedelta(hours=3)
-            logger.info(f"Processing fires after: {three_hours_ago}")
-
-            # Read all rows into memory first to get total count
             all_rows = list(cr)
-            total_rows = len(all_rows)
-            logger.info(f"Total number of rows to process: {total_rows}")
-
-            fire_count = 0
-            row_count = 0
-            for row in all_rows:
-                row_count += 1
-                if row_count % 1000 == 0:
-                    logger.info(f"Processed {row_count}/{total_rows} rows so far...")
-                    
-                try:
-                    fire_data = dict(zip(headers, row))
-                    acq_date = fire_data.get('acq_date')
-                    acq_time = fire_data.get('acq_time')
-
-                    if acq_date and acq_time:
-                        acq_time = acq_time.zfill(4)  # Pad to 4 digits (HHMM)
-                        timestamp_str = f"{acq_date} {acq_time}"
-                        fire_dt = datetime.strptime(timestamp_str, "%Y-%m-%d %H%M")
-                        
-                        # Only process fires within the time window
-                        time_diff = three_hours_ago - fire_dt
-                        if time_diff.total_seconds() <= (numberOfMinutes * 60):
-                            latitude = fire_data.get('latitude')
-                            longitude = fire_data.get('longitude')
-                            
-                            # Temporarily disable geocoding to identify bottleneck
-                            city, country = "Unknown", "Unknown"
-                                
-                            frp = float(fire_data.get('frp', 0))
-
-                            # Create a unique ID
-                            fire_id = f"{latitude}_{longitude}_{acq_date}_{acq_time}"
-
-                            fire_info = {
-                                "id": fire_id,
-                                "time": fire_dt.strftime("%Y-%m-%d %H:%M:%S"),
-                                "latitude": latitude,
-                                "longitude": longitude,
-                                "country": country,
-                                "city": city,
-                                "frp": frp,
-                                "type": "fire"
-                            }
-
-                            fetch_fires.processed_fires.append(fire_info)
-                            fire_count += 1
-                except Exception as e:
-                    logger.warning(f"Error processing fire row: {e}")
-                    continue
-
-            logger.info(f"Processed {total_rows} total rows and found {fire_count} new fire events")
-            return fetch_fires.processed_fires
+            
+            # Process fires within specified time window
+            three_hours_ago = datetime.utcnow() - timedelta(hours=3)
+            fire_events = process_batch(all_rows, headers, three_hours_ago, numberOfMinutes)
+            
+            logger.info(f"Processed {len(all_rows)} rows and found {len(fire_events)} new fire events")
+            return fire_events
 
         except requests.exceptions.Timeout:
             logger.error(f"Timeout while fetching fire data (Attempt {attempt + 1}/{max_retries})")
-            if attempt < max_retries - 1:
-                time.sleep(5)  # Wait before retrying
-                continue
-            return []
         except requests.exceptions.RequestException as e:
             logger.error(f"Error fetching fire data: {e}")
-            if attempt < max_retries - 1:
-                time.sleep(5)  # Wait before retrying
-                continue
-            return []
         except Exception as e:
             logger.error(f"Unexpected error in fetch_fires: {e}")
-            if attempt < max_retries - 1:
-                time.sleep(5)  # Wait before retrying
-                continue
-            return []
-
+            
+        if attempt < max_retries - 1:
+            time.sleep(5)
+            continue
+            
     return fetch_fires.processed_fires
 
-# Initialize the processed_fires list
+# Initialize the processed_fires list for tracking processed fire events
 fetch_fires.processed_fires = []
