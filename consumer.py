@@ -751,27 +751,39 @@ class DataProcessor:
             
             # Start writing streams based on configuration
             logger.info(f"Starting earthquake query with output mode: {self.config.OUTPUT_MODE}")
-            earthquake_query = self.create_writer(
-                processed_earthquakes.writeStream
-                    .foreachBatch(process_earthquake_alerts)
-                    .outputMode("append")
-                    .trigger(processingTime="5 seconds"),
-                "earthquake_stream",
-                "earthquakes" if self.config.OUTPUT_MODE in ['json', 'parquet'] else "earthquake_events"
-            )
+            earthquake_query = processed_earthquakes.writeStream \
+                .foreachBatch(process_earthquake_alerts) \
+                .outputMode("append") \
+                .format("console") \
+                .option("truncate", "false") \
+                .option("numRows", 20) \
+                .trigger(processingTime="5 seconds") \
+                .queryName("earthquake_stream") \
+                .option("checkpointLocation", f"{self.config.CHECKPOINT_DIR}/earthquake_stream") \
+                .start()
             
             logger.info(f"Starting fire query with output mode: {self.config.OUTPUT_MODE}")
-            fire_query = self.create_writer(
-                processed_fires.writeStream
-                    .foreachBatch(process_fire_alerts)
-                    .outputMode("append")
-                    .trigger(processingTime="5 seconds"),
-                "fire_stream",
-                "fires" if self.config.OUTPUT_MODE in ['json', 'parquet'] else "fire_events"
-            )
+            fire_query = processed_fires.writeStream \
+                .foreachBatch(process_fire_alerts) \
+                .outputMode("append") \
+                .format("console") \
+                .option("truncate", "false") \
+                .option("numRows", 20) \
+                .trigger(processingTime="5 seconds") \
+                .queryName("fire_stream") \
+                .option("checkpointLocation", f"{self.config.CHECKPOINT_DIR}/fire_stream") \
+                .start()
             
             logger.info("Starting metrics query...")
-            metrics_query = self.write_to_console(metrics_stream, "metrics_stream")
+            metrics_query = metrics_stream.writeStream \
+                .outputMode("append") \
+                .format("console") \
+                .option("truncate", "false") \
+                .option("numRows", 20) \
+                .trigger(processingTime=self.config.PROCESSING_TIME) \
+                .queryName("metrics_stream") \
+                .option("checkpointLocation", f"{self.config.CHECKPOINT_DIR}/metrics_stream") \
+                .start()
             
             logger.info("All streaming queries started successfully")
             logger.info(f"Output mode: {self.config.OUTPUT_MODE}")
