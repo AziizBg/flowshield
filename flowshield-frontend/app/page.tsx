@@ -22,7 +22,7 @@ import { toast } from "sonner"
 export default function StreamDashboard() {
   const [selectedEventType, setSelectedEventType] = useState<"all" | "earthquake" | "fire">("all")
   const [selectedSeverity, setSelectedSeverity] = useState<"all" | "low" | "moderate" | "high">("all")
-  const [selectedTimeRange, setSelectedTimeRange] = useState<"12h" | "6h" | "5h" | "3h" | "2h" | "1h" | "30m" | "1m">("1h")
+  const [selectedTimeRange, setSelectedTimeRange] = useState<"12h" | "6h" | "5h" | "3h" | "2h" | "1h" | "30m" | "1m">("30m")
   const [searchQuery, setSearchQuery] = useState("")
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null)
 
