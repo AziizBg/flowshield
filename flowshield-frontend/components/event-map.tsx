@@ -735,50 +735,8 @@ export function EventMap({ events, selectedEventId, onEventSelect }: EventMapPro
           )}
         </div>
 
-        {/* Legend */}
-        <div className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-          <div className="space-y-2">
-            <div className="font-medium">Severity</div>
-            <div className="flex items-center space-x-2">
-              <div className="w-3 h-3 rounded-full bg-red-500 border border-red-600"></div>
-              <span>High</span>
-            </div>
-            <div className="flex items-center space-x-2">
-              <div className="w-3 h-3 rounded-full bg-yellow-500 border border-yellow-600"></div>
-              <span>Moderate</span>
-            </div>
-            <div className="flex items-center space-x-2">
-              <div className="w-3 h-3 rounded-full bg-green-500 border border-green-600"></div>
-              <span>Low</span>
-            </div>
-          </div>
 
-          <div className="space-y-2">
-            <div className="font-medium">Event Types</div>
-            <div className="flex items-center space-x-2">
-              <Zap className="h-4 w-4" />
-              <span>Earthquake</span>
-            </div>
-            <div className="flex items-center space-x-2">
-              <Flame className="h-4 w-4" />
-              <span>Fire</span>
-            </div>
-          </div>
-
-          <div className="space-y-2">
-            <div className="font-medium">Map Styles</div>
-            <div className="text-xs text-muted-foreground">• Street: Roads & labels</div>
-            <div className="text-xs text-muted-foreground">• Satellite: Real imagery</div>
-            <div className="text-xs text-muted-foreground">• Terrain: Elevation data</div>
-          </div>
-
-          <div className="space-y-2">
-            <div className="font-medium">Controls</div>
-            <div className="text-xs text-muted-foreground">• Drag to pan map</div>
-            <div className="text-xs text-muted-foreground">• Use zoom buttons</div>
-            <div className="text-xs text-muted-foreground">• Switch map styles</div>
-          </div>
-        </div>
+        
       </CardContent>
     </Card>
   )

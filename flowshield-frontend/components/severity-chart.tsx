@@ -26,6 +26,30 @@ export function SeverityChart({ events, title = "Event Severity Distribution" }:
     },
   ]
 
+  // Custom legend component
+  const CustomLegend = ({ payload }: any) => {
+    return (
+      <div className="mt-4 space-y-2">
+        <div className="font-medium text-sm">Severity Distribution</div>
+        {payload.map((entry: any, index: number) => (
+          <div key={`legend-${index}`} className="flex items-center space-x-2">
+            <div
+              className="w-3 h-3 rounded-full border"
+              style={{
+                backgroundColor: entry.color,
+                borderColor: `${entry.color}80`
+              }}
+            />
+            <span className="text-sm">{entry.value}</span>
+            <span className="text-sm text-muted-foreground">
+              ({entry.payload.value} events)
+            </span>
+          </div>
+        ))}
+      </div>
+    )
+  }
+
   return (
     <Card>
       <CardHeader>
@@ -49,7 +73,7 @@ export function SeverityChart({ events, title = "Event Severity Distribution" }:
               ))}
             </Pie>
             <Tooltip />
-            <Legend />
+            <Legend content={<CustomLegend />} />
           </PieChart>
         </ResponsiveContainer>
       </CardContent>
