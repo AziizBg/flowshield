@@ -60,7 +60,7 @@ export function EventFeed({ events, onEventClick }: EventFeedProps) {
           {events.length} events
         </Badge>
       </div>
-      <ScrollArea className="flex-1 pr-4">
+      <ScrollArea className="h-[calc(100vh-200px)] pr-4">
         <div className="space-y-3">
           {events.map((event) => (
             <div
