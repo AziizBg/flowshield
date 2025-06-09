@@ -805,14 +805,18 @@ class DataProcessor:
         
         # Aggregate earthquake metrics
         earthquake_metrics = earthquake_stream \
-            .groupBy(
-                window(col("time"), "1 minute"),
-                col("severity")
-            ).agg(
+            .select(
+                window(col("time"), "1 minute").alias("window"),
+                col("severity"),
+                col("magnitude")
+            ) \
+            .groupBy("window", "severity") \
+            .agg(
                 count("*").alias("count"),
                 avg("magnitude").alias("avg_magnitude"),
-                spark_max("magnitude").alias("max_magnitude")
-            ).select(
+                max("magnitude").alias("max_magnitude")
+            ) \
+            .select(
                 col("window.start").alias("window_start"),
                 col("window.end").alias("window_end"),
                 lit("earthquake").alias("event_type"),
@@ -824,14 +828,18 @@ class DataProcessor:
         
         # Aggregate fire metrics
         fire_metrics = fire_stream \
-            .groupBy(
-                window(col("time"), "1 minute"),
-                col("severity")
-            ).agg(
+            .select(
+                window(col("time"), "1 minute").alias("window"),
+                col("severity"),
+                col("frp")
+            ) \
+            .groupBy("window", "severity") \
+            .agg(
                 count("*").alias("count"),
                 avg("frp").alias("avg_frp"),
-                spark_max("frp").alias("max_frp")
-            ).select(
+                max("frp").alias("max_frp")
+            ) \
+            .select(
                 col("window.start").alias("window_start"),
                 col("window.end").alias("window_end"),
                 lit("fire").alias("event_type"),
