@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect, useRef } from "react"
 import { Card, CardContent } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Zap, Clock, Search as SearchIcon } from "lucide-react"
@@ -17,6 +17,7 @@ import { ErrorBoundary } from "./components/error-boundary"
 import { useEvents } from "./hooks/useEvents"
 import type { Event } from "@/lib/mock-data"
 import Link from "next/link"
+import { toast } from "sonner"
 
 export default function StreamDashboard() {
   const [selectedEventType, setSelectedEventType] = useState<"all" | "earthquake" | "fire">("all")
@@ -30,6 +31,46 @@ export default function StreamDashboard() {
     selectedSeverity,
     selectedTimeRange
   )
+
+  // Persisted Sonner toast integration with temporary success message
+  const toastId = useRef<string | number | null>(null)
+  const prevIsLoading = useRef(isLoading)
+  const prevEventsLength = useRef(events.length)
+
+  useEffect(() => {
+    if (isLoading) {
+      if (!toastId.current) {
+        toastId.current = toast.loading("Fetching live data...", { id: "live-data-status" })
+      } else {
+        toast.loading("Fetching live data...", { id: toastId.current })
+      }
+    } else if (lastUpdated) {
+      // If we just finished loading (transition from loading to not loading)
+      if (prevIsLoading.current && !isLoading) {
+        // Show temporary success message with event count
+        toast.success(`${events.length} events fetched!`, { duration: 2000 })
+
+        // After a delay, update to the persistent live data status
+        setTimeout(() => {
+          if (toastId.current) {
+            toast.success("Live data – Last updated: " + lastUpdated.toLocaleString(), { id: toastId.current })
+          } else {
+            toastId.current = toast.success("Live data – Last updated: " + lastUpdated.toLocaleString(), { id: "live-data-status" })
+          }
+        }, 2000)
+      } else if (events.length !== prevEventsLength.current) {
+        // If events count changed but we weren't loading, just update the persistent status
+        if (toastId.current) {
+          toast.success("Live data – Last updated: " + lastUpdated.toLocaleString(), { id: toastId.current })
+        } else {
+          toastId.current = toast.success("Live data – Last updated: " + lastUpdated.toLocaleString(), { id: "live-data-status" })
+        }
+      }
+    }
+
+    prevIsLoading.current = isLoading
+    prevEventsLength.current = events.length
+  }, [isLoading, lastUpdated, events.length])
 
   // Filter events based on search query
   const searchFilteredEvents = filteredEvents.filter(event => {
@@ -119,25 +160,8 @@ export default function StreamDashboard() {
                 <SearchIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
               </div>
 
-              {/* Loading and status indicators */}
-              <div className="flex items-center justify-between bg-white rounded-lg p-4 shadow-sm border border-gray-100">
-                {isLoading ? (
-                  <div className="flex items-center gap-2">
-                    <div className="w-5 h-5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
-                    <span className="text-sm text-gray-600">{loadingStatus || "Loading live data..."}</span>
-                  </div>
-                ) : (
-                  <div className="flex items-center gap-2 text-sm text-gray-600">
-                    <Zap className="h-4 w-4 text-green-500" />
-                    <span>Live data - Last updated: {lastUpdated?.toLocaleString()}</span>
-                  </div>
-                )}
-                {error && (
-                  <div className="text-sm text-red-600">
-                    {error}
-                  </div>
-                )}
-              </div>
+              {/* Persisted Sonner toast (replaces the old loading indicator) */}
+              {/* (The toast is rendered by Sonner, so we do not need a div here.) */}
 
               {/* Metrics Cards */}
               <MetricsCards
