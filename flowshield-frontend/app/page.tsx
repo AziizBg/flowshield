@@ -139,7 +139,7 @@ export default function Dashboard() {
                 </Card>
                 <Card>
                   <CardContent className="p-6">
-                    <TrendChart events={events} />
+                    <TrendChart events={events} timeRange={selectedTimeRange} />
                   </CardContent>
                 </Card>
               </div>
