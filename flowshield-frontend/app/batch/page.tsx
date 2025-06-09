@@ -12,6 +12,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { useState, ChangeEvent } from "react"
 import { Badge } from "@/components/ui/badge"
 import { CorrelationsTab } from "../components/dashboard/CorrelationsTab"
+import { AnomaliesTab } from "@/app/components/dashboard/AnomaliesTab"
+import { HotspotsTab } from "@/app/components/dashboard/HotspotsTab"
 
 // Types for our mock data
 interface AnomalyEvent {
@@ -238,264 +240,37 @@ export default function BatchDashboard() {
                     </TabsList>
 
                     <TabsContent value="anomalies">
-                        <Card>
-                            <CardHeader className="pb-3">
-                                <div className="flex items-center justify-between">
-                                    <div>
-                                        <CardTitle className="text-2xl">Anomalous Disasters</CardTitle>
-                                        <CardDescription className="mt-1.5">
-                                            Events that significantly exceed normal thresholds for magnitude, deaths, or affected population
-                                        </CardDescription>
-                                    </div>
-                                    <Button
-                                        variant="outline"
-                                        size="sm"
-                                        onClick={() => setShowFilters(!showFilters)}
-                                        className="flex items-center gap-2"
-                                    >
-                                        <Filter className="h-4 w-4" />
-                                        {showFilters ? (
-                                            <>
-                                                Hide Filters
-                                                <ChevronUp className="h-4 w-4" />
-                                            </>
-                                        ) : (
-                                            <>
-                                                Show Filters
-                                                <ChevronDown className="h-4 w-4" />
-                                            </>
-                                        )}
-                                    </Button>
-                                </div>
-                            </CardHeader>
-                            <CardContent className="space-y-4">
-                                {/* Filters */}
-                                {showFilters && (
-                                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4 p-4 bg-gray-50 rounded-lg border border-gray-100">
-                                        <div className="space-y-2">
-                                            <label className="text-sm font-medium text-gray-700">Disaster Type</label>
-                                            <Select value={selectedDisasterType} onValueChange={setSelectedDisasterType}>
-                                                <SelectTrigger>
-                                                    <SelectValue placeholder="Select type" />
-                                                </SelectTrigger>
-                                                <SelectContent>
-                                                    <SelectItem value="all">All Types</SelectItem>
-                                                    <SelectItem value="earthquake">Earthquake</SelectItem>
-                                                    <SelectItem value="flood">Flood</SelectItem>
-                                                    <SelectItem value="storm">Storm</SelectItem>
-                                                    <SelectItem value="wildfire">Wildfire</SelectItem>
-                                                    <SelectItem value="volcanic activity">Volcanic Activity</SelectItem>
-                                                    <SelectItem value="tsunami">Tsunami</SelectItem>
-                                                    <SelectItem value="drought">Drought</SelectItem>
-                                                    <SelectItem value="landslide">Landslide</SelectItem>
-                                                </SelectContent>
-                                            </Select>
-                                        </div>
-
-                                        <div className="space-y-2">
-                                            <label className="text-sm font-medium text-gray-700">Anomaly Type</label>
-                                            <Select value={selectedAnomalyType} onValueChange={setSelectedAnomalyType}>
-                                                <SelectTrigger>
-                                                    <SelectValue placeholder="Select anomaly" />
-                                                </SelectTrigger>
-                                                <SelectContent>
-                                                    <SelectItem value="all">All Anomalies</SelectItem>
-                                                    <SelectItem value="magnitude">
-                                                        <div className="flex items-center gap-2">
-                                                            <span className="w-2 h-2 rounded-full bg-blue-500" />
-                                                            Magnitude
-                                                        </div>
-                                                    </SelectItem>
-                                                    <SelectItem value="deaths">
-                                                        <div className="flex items-center gap-2">
-                                                            <span className="w-2 h-2 rounded-full bg-red-500" />
-                                                            Deaths
-                                                        </div>
-                                                    </SelectItem>
-                                                    <SelectItem value="affected">
-                                                        <div className="flex items-center gap-2">
-                                                            <span className="w-2 h-2 rounded-full bg-orange-500" />
-                                                            Affected
-                                                        </div>
-                                                    </SelectItem>
-                                                </SelectContent>
-                                            </Select>
-                                        </div>
-
-                                        <div className="space-y-2">
-                                            <label className="text-sm font-medium text-gray-700">Year Range</label>
-                                            <div className="flex gap-2">
-                                                <Input
-                                                    type="number"
-                                                    placeholder="Start Year"
-                                                    value={yearRange.start}
-                                                    onChange={handleYearChange('start')}
-                                                    className="w-full"
-                                                />
-                                                <Input
-                                                    type="number"
-                                                    placeholder="End Year"
-                                                    value={yearRange.end}
-                                                    onChange={handleYearChange('end')}
-                                                    className="w-full"
-                                                />
-                                            </div>
-                                        </div>
-
-                                        <div className="flex items-end">
-                                            <Button className="w-full">Apply Filters</Button>
-                                        </div>
-                                    </div>
-                                )}
-
-                                {/* Data Table */}
-                                <div className="rounded-lg border border-gray-200 bg-white">
-                                    <div className="p-4 border-b border-gray-200 bg-gray-50">
-                                        <div className="flex items-center justify-between">
-                                            <h3 className="font-medium">Anomaly Results</h3>
-                                            <div className="flex items-center gap-2">
-                                                <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
-                                                    Magnitude
-                                                </Badge>
-                                                <Badge variant="outline" className="bg-red-50 text-red-700 border-red-200">
-                                                    Deaths
-                                                </Badge>
-                                                <Badge variant="outline" className="bg-orange-50 text-orange-700 border-orange-200">
-                                                    Affected
-                                                </Badge>
-                                            </div>
-                                        </div>
-                                    </div>
-                                    <Table>
-                                        <TableHeader>
-                                            <TableRow className="bg-gray-50 hover:bg-gray-50">
-                                                <TableHead>Disaster Type</TableHead>
-                                                <TableHead>Country</TableHead>
-                                                <TableHead>Event Name</TableHead>
-                                                <TableHead>Date</TableHead>
-                                                <TableHead>Last Updated</TableHead>
-                                                <TableHead>Magnitude</TableHead>
-                                                <TableHead>Deaths</TableHead>
-                                                <TableHead>Affected</TableHead>
-                                                <TableHead>Anomaly Type</TableHead>
-                                            </TableRow>
-                                        </TableHeader>
-                                        <TableBody>
-                                            {filteredAnomalies.length === 0 ? (
-                                                <TableRow>
-                                                    <TableCell colSpan={9} className="text-center text-gray-500 py-8">
-                                                        <div className="flex flex-col items-center gap-2">
-                                                            <AlertTriangle className="h-8 w-8 text-gray-400" />
-                                                            <p>No anomalies found</p>
-                                                            <p className="text-sm">Try adjusting the filters to see more results</p>
-                                                        </div>
-                                                    </TableCell>
-                                                </TableRow>
-                                            ) : (
-                                                paginatedAnomalies.map((anomaly) => (
-                                                    <TableRow key={anomaly.id} className="hover:bg-gray-50">
-                                                        <TableCell className="font-medium capitalize">
-                                                            {anomaly.disasterType}
-                                                        </TableCell>
-                                                        <TableCell>{anomaly.country}</TableCell>
-                                                        <TableCell>
-                                                            <a
-                                                                href={anomaly.source}
-                                                                target="_blank"
-                                                                rel="noopener noreferrer"
-                                                                className="text-blue-600 hover:underline"
-                                                            >
-                                                                {anomaly.eventName}
-                                                            </a>
-                                                        </TableCell>
-                                                        <TableCell>
-                                                            {new Date(anomaly.date).toLocaleDateString()}
-                                                        </TableCell>
-                                                        <TableCell>
-                                                            {new Date(anomaly.lastUpdated).toLocaleDateString()}
-                                                        </TableCell>
-                                                        <TableCell className="text-right font-medium">
-                                                            {anomaly.magnitude?.toFixed(2) ?? "N/A"}
-                                                        </TableCell>
-                                                        <TableCell className="text-right font-medium">
-                                                            {anomaly.deaths?.toLocaleString() ?? "N/A"}
-                                                        </TableCell>
-                                                        <TableCell className="text-right font-medium">
-                                                            {anomaly.affected?.toLocaleString() ?? "N/A"}
-                                                        </TableCell>
-                                                        <TableCell>
-                                                            <Badge
-                                                                variant="outline"
-                                                                className={`${getAnomalyTypeColor(anomaly.anomalyType)}`}
-                                                            >
-                                                                {anomaly.anomalyType}
-                                                            </Badge>
-                                                        </TableCell>
-                                                    </TableRow>
-                                                ))
-                                            )}
-                                        </TableBody>
-                                    </Table>
-                                </div>
-
-                                {/* Pagination */}
-                                {filteredAnomalies.length > 0 && (
-                                    <div className="flex items-center justify-between pt-4">
-                                        <div className="text-sm text-gray-500">
-                                            Showing {((currentPage - 1) * itemsPerPage) + 1} to {Math.min(currentPage * itemsPerPage, filteredAnomalies.length)} of {filteredAnomalies.length} results
-                                        </div>
-                                        <div className="flex gap-2">
-                                            <Button
-                                                variant="outline"
-                                                size="sm"
-                                                onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
-                                                disabled={currentPage === 1}
-                                            >
-                                                Previous
-                                            </Button>
-                                            <Button
-                                                variant="outline"
-                                                size="sm"
-                                                onClick={() => setCurrentPage(prev => prev + 1)}
-                                                disabled={currentPage * itemsPerPage >= filteredAnomalies.length}
-                                            >
-                                                Next
-                                            </Button>
-                                        </div>
-                                    </div>
-                                )}
-                            </CardContent>
-                        </Card>
+                        <AnomaliesTab />
                     </TabsContent>
 
                     <TabsContent value="correlations">
-                        <CorrelationsTab />
+                        <Card>
+                            <CardHeader>
+                                <CardTitle>Temporally Correlated Disasters</CardTitle>
+                                <CardDescription>
+                                    Analysis of disasters that occurred within 30 days of each other
+                                </CardDescription>
+                            </CardHeader>
+                            <CardContent>
+                                <p className="text-sm text-muted-foreground">Coming soon...</p>
+                            </CardContent>
+                        </Card>
                     </TabsContent>
 
                     <TabsContent value="hotspots">
-                        <Card>
-                            <CardHeader>
-                                <CardTitle>Disaster Hotspots</CardTitle>
-                            </CardHeader>
-                            <CardContent>
-                                <div className="text-center text-gray-500">
-                                    <p className="text-lg">Hotspot analysis coming soon...</p>
-                                    <p className="mt-2">This view will show the top 5 hotspot regions for each major disaster type, based on frequency and impact.</p>
-                                </div>
-                            </CardContent>
-                        </Card>
+                        <HotspotsTab />
                     </TabsContent>
 
                     <TabsContent value="vulnerability">
                         <Card>
                             <CardHeader>
                                 <CardTitle>Country Vulnerability Index</CardTitle>
+                                <CardDescription>
+                                    Analysis of country-level vulnerability to different types of disasters
+                                </CardDescription>
                             </CardHeader>
                             <CardContent>
-                                <div className="text-center text-gray-500">
-                                    <p className="text-lg">Vulnerability analysis coming soon...</p>
-                                    <p className="mt-2">This view will show countries ranked by their disaster vulnerability, considering fatalities, economic damage, and recovery time.</p>
-                                </div>
+                                <p className="text-sm text-muted-foreground">Coming soon...</p>
                             </CardContent>
                         </Card>
                     </TabsContent>
@@ -504,22 +279,12 @@ export default function BatchDashboard() {
                         <Card>
                             <CardHeader>
                                 <CardTitle>Disaster Summaries</CardTitle>
+                                <CardDescription>
+                                    Detailed summaries for each disaster type
+                                </CardDescription>
                             </CardHeader>
                             <CardContent>
-                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                                    {["Earthquake", "Wildfire", "Flood", "Storm", "Volcanic Activity"].map((type) => (
-                                        <Card key={type}>
-                                            <CardHeader>
-                                                <CardTitle className="text-lg">{type} Summary</CardTitle>
-                                            </CardHeader>
-                                            <CardContent>
-                                                <div className="text-center text-gray-500">
-                                                    <p>{type} statistics coming soon...</p>
-                                                </div>
-                                            </CardContent>
-                                        </Card>
-                                    ))}
-                                </div>
+                                <p className="text-sm text-muted-foreground">Coming soon...</p>
                             </CardContent>
                         </Card>
                     </TabsContent>
