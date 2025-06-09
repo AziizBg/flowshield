@@ -1,7 +1,7 @@
 "use client"
 
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
-import { Clock, AlertTriangle, Calendar, MapPin, BarChart2, Globe, Filter, ChevronDown, ChevronUp, Loader2 } from "lucide-react"
+import { Clock, AlertTriangle, Calendar, MapPin, BarChart2, Globe, Filter, ChevronDown, ChevronUp, Loader2, Activity } from "lucide-react"
 import Link from "next/link"
 import { Header } from "@/app/components/dashboard/Header"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { useState, ChangeEvent } from "react"
 import { Badge } from "@/components/ui/badge"
-import { CorrelationsTab } from "../components/dashboard/CorrelationsTab"
+import { CorrelationsTab } from "@/app/components/dashboard/CorrelationsTab"
 import { AnomaliesTab } from "@/app/components/dashboard/AnomaliesTab"
 import { HotspotsTab } from "@/app/components/dashboard/HotspotsTab"
 import { VulnerabilityTab } from "@/app/components/dashboard/VulnerabilityTab"
@@ -204,7 +204,7 @@ export default function BatchDashboard() {
                             href="/"
                             className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-50 hover:bg-gray-100 text-gray-500 rounded-full transition-colors cursor-pointer"
                         >
-                            <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
+                            <Activity className="h-4 w-4" />
                             <span className="text-sm font-medium">Live</span>
                         </Link>
                     }
@@ -216,28 +216,12 @@ export default function BatchDashboard() {
                     }
                 />
 
-                <Tabs defaultValue="anomalies" className="space-y-4">
-                    <TabsList className="grid w-full grid-cols-5">
-                        <TabsTrigger value="anomalies" className="flex items-center gap-2">
-                            <AlertTriangle className="h-4 w-4" />
-                            Anomalies
-                        </TabsTrigger>
-                        <TabsTrigger value="correlations" className="flex items-center gap-2">
-                            <Calendar className="h-4 w-4" />
-                            Correlations
-                        </TabsTrigger>
-                        <TabsTrigger value="hotspots" className="flex items-center gap-2">
-                            <MapPin className="h-4 w-4" />
-                            Hotspots
-                        </TabsTrigger>
-                        <TabsTrigger value="vulnerability" className="flex items-center gap-2">
-                            <Globe className="h-4 w-4" />
-                            Vulnerability
-                        </TabsTrigger>
-                        <TabsTrigger value="summaries" className="flex items-center gap-2">
-                            <BarChart2 className="h-4 w-4" />
-                            Summaries
-                        </TabsTrigger>
+                <Tabs defaultValue="anomalies" className="space-y-6">
+                    <TabsList className="grid w-full grid-cols-4">
+                        <TabsTrigger value="anomalies" className="flex-1">Anomalies</TabsTrigger>
+                        <TabsTrigger value="correlations" className="flex-1">Correlations</TabsTrigger>
+                        <TabsTrigger value="hotspots" className="flex-1">Hotspots</TabsTrigger>
+                        <TabsTrigger value="vulnerability" className="flex-1">Vulnerability</TabsTrigger>
                     </TabsList>
 
                     <TabsContent value="anomalies">
@@ -245,17 +229,7 @@ export default function BatchDashboard() {
                     </TabsContent>
 
                     <TabsContent value="correlations">
-                        <Card>
-                            <CardHeader>
-                                <CardTitle>Temporally Correlated Disasters</CardTitle>
-                                <CardDescription>
-                                    Analysis of disasters that occurred within 30 days of each other
-                                </CardDescription>
-                            </CardHeader>
-                            <CardContent>
-                                <p className="text-sm text-muted-foreground">Coming soon...</p>
-                            </CardContent>
-                        </Card>
+                        <CorrelationsTab />
                     </TabsContent>
 
                     <TabsContent value="hotspots">
@@ -264,20 +238,6 @@ export default function BatchDashboard() {
 
                     <TabsContent value="vulnerability">
                         <VulnerabilityTab />
-                    </TabsContent>
-
-                    <TabsContent value="summaries">
-                        <Card>
-                            <CardHeader>
-                                <CardTitle>Disaster Summaries</CardTitle>
-                                <CardDescription>
-                                    Detailed summaries for each disaster type
-                                </CardDescription>
-                            </CardHeader>
-                            <CardContent>
-                                <p className="text-sm text-muted-foreground">Coming soon...</p>
-                            </CardContent>
-                        </Card>
                     </TabsContent>
                 </Tabs>
             </div>
