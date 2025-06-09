@@ -55,13 +55,13 @@ export function EventMap({ events, selectedEventId, onEventSelect }: EventMapPro
   const getSeverityColor = (severity: string) => {
     switch (severity) {
       case "high":
-        return "bg-red-100 text-red-700"
+        return "bg-red-50 text-red-600"
       case "moderate":
-        return "bg-yellow-100 text-yellow-700"
+        return "bg-yellow-50 text-yellow-600"
       case "low":
-        return "bg-green-100 text-green-700"
+        return "bg-green-50 text-green-600"
       default:
-        return "bg-gray-100 text-gray-700"
+        return "bg-gray-50 text-gray-600"
     }
   }
 
@@ -498,10 +498,10 @@ export function EventMap({ events, selectedEventId, onEventSelect }: EventMapPro
 
   const getMarkerColor = (event: Event) => {
     const severityColors = {
-      high: "text-red-600",
-      moderate: "text-yellow-500",
-      low: "text-green-500",
-      default: "text-gray-500"
+      high: "text-red-400",
+      moderate: "text-yellow-400",
+      low: "text-green-400",
+      default: "text-gray-400"
     }
 
     return severityColors[event.severity as keyof typeof severityColors] || severityColors.default
@@ -734,9 +734,6 @@ export function EventMap({ events, selectedEventId, onEventSelect }: EventMapPro
             </div>
           )}
         </div>
-
-
-        
       </CardContent>
     </Card>
   )

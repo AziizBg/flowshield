@@ -12,17 +12,17 @@ export function SeverityChart({ events, title = "Event Severity Distribution" }:
     {
       name: "High",
       value: events.filter((e) => e.severity === "high").length,
-      color: "#ef4444",
+      color: "#fca5a5",
     },
     {
       name: "Moderate",
       value: events.filter((e) => e.severity === "moderate").length,
-      color: "#eab308",
+      color: "#fde047",
     },
     {
       name: "Low",
       value: events.filter((e) => e.severity === "low").length,
-      color: "#22c55e",
+      color: "#86efac",
     },
   ]
 
