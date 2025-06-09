@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { useState, ChangeEvent } from "react"
 import { Badge } from "@/components/ui/badge"
+import { CorrelationsTab } from "../components/dashboard/CorrelationsTab"
 
 // Types for our mock data
 interface AnomalyEvent {
@@ -468,17 +469,7 @@ export default function BatchDashboard() {
                     </TabsContent>
 
                     <TabsContent value="correlations">
-                        <Card>
-                            <CardHeader>
-                                <CardTitle>Temporally Correlated Disasters</CardTitle>
-                            </CardHeader>
-                            <CardContent>
-                                <div className="text-center text-gray-500">
-                                    <p className="text-lg">Temporal correlation analysis coming soon...</p>
-                                    <p className="mt-2">This view will show pairs of different disaster types that occurred within 7 days of each other in the same country.</p>
-                                </div>
-                            </CardContent>
-                        </Card>
+                        <CorrelationsTab />
                     </TabsContent>
 
                     <TabsContent value="hotspots">

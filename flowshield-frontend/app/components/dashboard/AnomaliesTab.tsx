@@ -150,6 +150,8 @@ export function AnomaliesTab() {
     const [currentPage, setCurrentPage] = useState(1)
     const [showFilters, setShowFilters] = useState(true)
     const itemsPerPage = 10
+    const [sortBy, setSortBy] = useState<keyof AnomalyEvent | null>(null)
+    const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc")
 
     const handleYearChange = (field: 'start' | 'end') => (e: ChangeEvent<HTMLInputElement>) => {
         setYearRange(prev => ({ ...prev, [field]: e.target.value }))
@@ -177,10 +179,42 @@ export function AnomaliesTab() {
         return matchesType && matchesAnomalyType && matchesYear
     })
 
-    const paginatedAnomalies = filteredAnomalies.slice(
+    // Sorting
+    let sortedAnomalies = [...filteredAnomalies]
+    if (sortBy) {
+        sortedAnomalies.sort((a, b) => {
+            let aValue = a[sortBy]
+            let bValue = b[sortBy]
+            if (sortBy === "date" || sortBy === "lastUpdated") {
+                aValue = new Date(aValue as string).getTime()
+                bValue = new Date(bValue as string).getTime()
+            }
+            if (typeof aValue === "string" && typeof bValue === "string") {
+                aValue = aValue.toLowerCase()
+                bValue = bValue.toLowerCase()
+            }
+            if (aValue == null) return 1
+            if (bValue == null) return -1
+            if (aValue < bValue) return sortDirection === "asc" ? -1 : 1
+            if (aValue > bValue) return sortDirection === "asc" ? 1 : -1
+            return 0
+        })
+    }
+
+    // Pagination
+    const paginatedAnomalies = sortedAnomalies.slice(
         (currentPage - 1) * itemsPerPage,
         currentPage * itemsPerPage
     )
+
+    const handleSort = (column: keyof AnomalyEvent) => {
+        if (sortBy === column) {
+            setSortDirection(sortDirection === "asc" ? "desc" : "asc")
+        } else {
+            setSortBy(column)
+            setSortDirection("asc")
+        }
+    }
 
     return (
         <TabsContent value="anomalies">
@@ -315,15 +349,42 @@ export function AnomaliesTab() {
                         <Table>
                             <TableHeader>
                                 <TableRow className="bg-gray-50 hover:bg-gray-50">
-                                    <TableHead>Disaster Type</TableHead>
-                                    <TableHead>Country</TableHead>
-                                    <TableHead>Event Name</TableHead>
-                                    <TableHead>Date</TableHead>
-                                    <TableHead>Last Updated</TableHead>
-                                    <TableHead>Magnitude</TableHead>
-                                    <TableHead>Deaths</TableHead>
-                                    <TableHead>Affected</TableHead>
-                                    <TableHead>Anomaly Type</TableHead>
+                                    <TableHead onClick={() => handleSort("disasterType")} className="cursor-pointer select-none">
+                                        Disaster Type
+                                        {sortBy === "disasterType" && (sortDirection === "asc" ? <ChevronUp className="inline h-4 w-4 ml-1" /> : <ChevronDown className="inline h-4 w-4 ml-1" />)}
+                                    </TableHead>
+                                    <TableHead onClick={() => handleSort("country")} className="cursor-pointer select-none">
+                                        Country
+                                        {sortBy === "country" && (sortDirection === "asc" ? <ChevronUp className="inline h-4 w-4 ml-1" /> : <ChevronDown className="inline h-4 w-4 ml-1" />)}
+                                    </TableHead>
+                                    <TableHead onClick={() => handleSort("eventName")} className="cursor-pointer select-none">
+                                        Event Name
+                                        {sortBy === "eventName" && (sortDirection === "asc" ? <ChevronUp className="inline h-4 w-4 ml-1" /> : <ChevronDown className="inline h-4 w-4 ml-1" />)}
+                                    </TableHead>
+                                    <TableHead onClick={() => handleSort("date")} className="cursor-pointer select-none">
+                                        Date
+                                        {sortBy === "date" && (sortDirection === "asc" ? <ChevronUp className="inline h-4 w-4 ml-1" /> : <ChevronDown className="inline h-4 w-4 ml-1" />)}
+                                    </TableHead>
+                                    <TableHead onClick={() => handleSort("lastUpdated")} className="cursor-pointer select-none">
+                                        Last Updated
+                                        {sortBy === "lastUpdated" && (sortDirection === "asc" ? <ChevronUp className="inline h-4 w-4 ml-1" /> : <ChevronDown className="inline h-4 w-4 ml-1" />)}
+                                    </TableHead>
+                                    <TableHead onClick={() => handleSort("magnitude")} className="cursor-pointer select-none text-right">
+                                        Magnitude
+                                        {sortBy === "magnitude" && (sortDirection === "asc" ? <ChevronUp className="inline h-4 w-4 ml-1" /> : <ChevronDown className="inline h-4 w-4 ml-1" />)}
+                                    </TableHead>
+                                    <TableHead onClick={() => handleSort("deaths")} className="cursor-pointer select-none text-right">
+                                        Deaths
+                                        {sortBy === "deaths" && (sortDirection === "asc" ? <ChevronUp className="inline h-4 w-4 ml-1" /> : <ChevronDown className="inline h-4 w-4 ml-1" />)}
+                                    </TableHead>
+                                    <TableHead onClick={() => handleSort("affected")} className="cursor-pointer select-none text-right">
+                                        Affected
+                                        {sortBy === "affected" && (sortDirection === "asc" ? <ChevronUp className="inline h-4 w-4 ml-1" /> : <ChevronDown className="inline h-4 w-4 ml-1" />)}
+                                    </TableHead>
+                                    <TableHead onClick={() => handleSort("anomalyType")} className="cursor-pointer select-none">
+                                        Anomaly Type
+                                        {sortBy === "anomalyType" && (sortDirection === "asc" ? <ChevronUp className="inline h-4 w-4 ml-1" /> : <ChevronDown className="inline h-4 w-4 ml-1" />)}
+                                    </TableHead>
                                 </TableRow>
                             </TableHeader>
                             <TableBody>
