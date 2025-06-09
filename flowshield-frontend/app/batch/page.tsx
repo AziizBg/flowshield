@@ -17,14 +17,20 @@ export default function BatchDashboard() {
                     onToggleDataMode={() => { }}
                     onToggleRealTime={() => { }}
                     onRefresh={() => { }}
-                    historicalDataLink={
+                    liveLink={
                         <Link
                             href="/"
-                            className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 text-blue-700 rounded-full transition-colors"
+                            className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-50 hover:bg-gray-100 text-gray-500 rounded-full transition-colors cursor-pointer"
                         >
+                            <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
+                            <span className="text-sm font-medium">Live</span>
+                        </Link>
+                    }
+                    historicalLink={
+                        <div className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 text-blue-700 rounded-full">
                             <Clock className="h-4 w-4" />
                             <span className="text-sm font-medium">Historical</span>
-                        </Link>
+                        </div>
                     }
                 />
 
