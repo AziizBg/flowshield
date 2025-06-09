@@ -804,8 +804,8 @@ class DataProcessor:
             .groupBy("window", "severity") \
             .agg(
                 count("*").alias("count"),
-                avg(col("magnitude")).alias("avg_magnitude"),
-                max(col("magnitude")).alias("max_magnitude")
+                avg("magnitude").alias("avg_magnitude"),
+                expr("max(magnitude)").alias("max_magnitude")
             ) \
             .select(
                 col("window.start").alias("window_start"),
@@ -827,8 +827,8 @@ class DataProcessor:
             .groupBy("window", "severity") \
             .agg(
                 count("*").alias("count"),
-                avg(col("frp")).alias("avg_frp"),
-                max(col("frp")).alias("max_frp")
+                avg("frp").alias("avg_frp"),
+                expr("max(frp)").alias("max_frp")
             ) \
             .select(
                 col("window.start").alias("window_start"),
