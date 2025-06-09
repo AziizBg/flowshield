@@ -195,28 +195,66 @@ class DataProcessor:
             # Create metrics stream
             metrics_stream = self.create_metrics_stream(earthquake_stream, fire_stream)
             
-            # Process alerts
+            # Process alerts and save to HBase
             def process_earthquake_alerts(df, epoch_id):
                 if df.count() > 0:
                     for row in df.collect():
                         location = f"{row.city}, {row.country}"
+                        # Process alert
                         self.alert_manager.process_alert(
                             event_type="earthquake",
                             severity=row.severity,
                             value=row.magnitude,
                             location=location
                         )
+                        # Save to HBase if configured
+                        if self.hbase_client:
+                            self.hbase_client.save_earthquake({
+                                'id': row.id,
+                                'time': row.time,
+                                'latitude': row.latitude,
+                                'longitude': row.longitude,
+                                'magnitude': row.magnitude,
+                                'severity': row.severity,
+                                'city': row.city,
+                                'country': row.country
+                            })
             
             def process_fire_alerts(df, epoch_id):
                 if df.count() > 0:
                     for row in df.collect():
                         location = f"{row.city}, {row.country}"
+                        # Process alert
                         self.alert_manager.process_alert(
                             event_type="fire",
                             severity=row.severity,
                             value=row.frp,
                             location=location
                         )
+                        # Save to HBase if configured
+                        if self.hbase_client:
+                            self.hbase_client.save_fire({
+                                'id': row.id,
+                                'time': row.time,
+                                'latitude': row.latitude,
+                                'longitude': row.longitude,
+                                'frp': row.frp,
+                                'severity': row.severity,
+                                'city': row.city,
+                                'country': row.country
+                            })
+            
+            def process_metrics(df, epoch_id):
+                if df.count() > 0 and self.hbase_client:
+                    for row in df.collect():
+                        self.hbase_client.save_metrics({
+                            'window_start': row.window.start,
+                            'window_end': row.window.end,
+                            'severity': row.severity,
+                            'count': row.count,
+                            'avg_value': row.avg_magnitude if 'avg_magnitude' in row else row.avg_frp,
+                            'max_value': row.max_magnitude if 'max_magnitude' in row else row.max_frp
+                        })
             
             # Start queries
             earthquake_query = earthquake_stream.writeStream \
@@ -240,6 +278,7 @@ class DataProcessor:
                 .start()
             
             metrics_query = metrics_stream.writeStream \
+                .foreachBatch(process_metrics) \
                 .outputMode("append") \
                 .format("console") \
                 .option("truncate", "false") \
