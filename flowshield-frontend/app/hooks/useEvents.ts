@@ -36,6 +36,17 @@ export function useEvents(
     fetchRealData()
   }, [selectedEventType, selectedSeverity, selectedTimeRange])
 
+  // Add periodic refetching when isRealTime is true
+  useEffect(() => {
+    if (!isRealTime) return
+
+    const intervalId = setInterval(() => {
+      fetchRealData()
+    }, 60000) // Refetch every 60 seconds
+
+    return () => clearInterval(intervalId)
+  }, [isRealTime]) // Only re-run if isRealTime changes
+
   const fetchRealData = async () => {
     setLoading(true)
     setLoadingStatus("Initializing...")
