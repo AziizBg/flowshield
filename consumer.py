@@ -557,26 +557,6 @@ class DataProcessor:
         processed = self._cleanup_temporary_columns(processed) \
             .dropDuplicates(["id"])
         
-        # Add alert processing
-        def process_earthquake_alerts(df, epoch_id):
-            if df.count() > 0:
-                rows = df.collect()
-                for row in rows:
-                    location = f"{row.city}, {row.country}"
-                    self.alert_manager.process_alert(
-                        event_type="earthquake",
-                        severity=row.severity,
-                        value=row.magnitude,
-                        location=location
-                    )
-        
-        # Add alert processing to the stream
-        processed = processed.writeStream \
-            .foreachBatch(process_earthquake_alerts) \
-            .outputMode("append") \
-            .trigger(processingTime="5 seconds") \
-            .start()
-        
         return processed
     
     def process_fire_stream(self, stream):
@@ -624,26 +604,6 @@ class DataProcessor:
         # Cleanup and deduplicate
         processed = self._cleanup_temporary_columns(processed) \
             .dropDuplicates(["id"])
-        
-        # Add alert processing
-        def process_fire_alerts(df, epoch_id):
-            if df.count() > 0:
-                rows = df.collect()
-                for row in rows:
-                    location = f"{row.city}, {row.country}"
-                    self.alert_manager.process_alert(
-                        event_type="fire",
-                        severity=row.severity,
-                        value=row.frp,
-                        location=location
-                    )
-        
-        # Add alert processing to the stream
-        processed = processed.writeStream \
-            .foreachBatch(process_fire_alerts) \
-            .outputMode("append") \
-            .trigger(processingTime="5 seconds") \
-            .start()
         
         return processed
     
@@ -760,21 +720,52 @@ class DataProcessor:
             logger.info("Processing fire stream...")
             processed_fires = self.process_fire_stream(fire_stream)
             
-            # Create metrics stream
+            # Create metrics stream before starting any queries
             logger.info("Creating metrics stream...")
             metrics_stream = self.create_metrics_stream(processed_earthquakes, processed_fires)
+            
+            # Add alert processing
+            def process_earthquake_alerts(df, epoch_id):
+                if df.count() > 0:
+                    rows = df.collect()
+                    for row in rows:
+                        location = f"{row.city}, {row.country}"
+                        self.alert_manager.process_alert(
+                            event_type="earthquake",
+                            severity=row.severity,
+                            value=row.magnitude,
+                            location=location
+                        )
+            
+            def process_fire_alerts(df, epoch_id):
+                if df.count() > 0:
+                    rows = df.collect()
+                    for row in rows:
+                        location = f"{row.city}, {row.country}"
+                        self.alert_manager.process_alert(
+                            event_type="fire",
+                            severity=row.severity,
+                            value=row.frp,
+                            location=location
+                        )
             
             # Start writing streams based on configuration
             logger.info(f"Starting earthquake query with output mode: {self.config.OUTPUT_MODE}")
             earthquake_query = self.create_writer(
-                processed_earthquakes, 
+                processed_earthquakes.writeStream
+                    .foreachBatch(process_earthquake_alerts)
+                    .outputMode("append")
+                    .trigger(processingTime="5 seconds"),
                 "earthquake_stream",
                 "earthquakes" if self.config.OUTPUT_MODE in ['json', 'parquet'] else "earthquake_events"
             )
             
             logger.info(f"Starting fire query with output mode: {self.config.OUTPUT_MODE}")
             fire_query = self.create_writer(
-                processed_fires, 
+                processed_fires.writeStream
+                    .foreachBatch(process_fire_alerts)
+                    .outputMode("append")
+                    .trigger(processingTime="5 seconds"),
                 "fire_stream",
                 "fires" if self.config.OUTPUT_MODE in ['json', 'parquet'] else "fire_events"
             )
