@@ -1,5 +1,5 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts"
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Area, AreaChart } from "recharts"
 import type { Event } from "@/lib/mock-data"
 
 interface TrendChartProps {
@@ -87,32 +87,81 @@ export function TrendChart({ events, title = "Event Trends", timeRange = "1h" }:
   // Remove the internal time properties before rendering
   const chartData = timeIntervals.map(({ time, events }) => ({ time, events }))
 
+  // Find the maximum number of events for color scaling
+  const maxEvents = Math.max(...chartData.map(d => d.events))
+
+  // Custom tooltip component
+  const CustomTooltip = ({ active, payload, label }: any) => {
+    if (active && payload && payload.length) {
+      return (
+        <div className="bg-white p-3 rounded-lg shadow-lg border border-gray-100">
+          <p className="text-sm font-medium text-gray-900">{label}</p>
+          <p className="text-sm text-red-600">
+            {payload[0].value} {payload[0].value === 1 ? 'event' : 'events'}
+          </p>
+        </div>
+      )
+    }
+    return null
+  }
+
   return (
     <Card>
       <CardHeader>
-        <CardTitle>{title} (Last {timeRange})</CardTitle>
+        <CardTitle className="text-lg font-semibold text-gray-900">{title} (Last {timeRange})</CardTitle>
       </CardHeader>
       <CardContent>
         <ResponsiveContainer width="100%" height={300}>
-          <LineChart data={chartData}>
-            <CartesianGrid strokeDasharray="3 3" />
+          <AreaChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+            <defs>
+              <linearGradient id="colorEvents" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="5%" stopColor="#ef4444" stopOpacity={0.3} />
+                <stop offset="95%" stopColor="#ef4444" stopOpacity={0} />
+              </linearGradient>
+            </defs>
+            <CartesianGrid
+              strokeDasharray="3 3"
+              vertical={false}
+              stroke="#f0f0f0"
+            />
             <XAxis
               dataKey="time"
-              tick={{ fontSize: 12 }}
+              tick={{ fontSize: 12, fill: '#6b7280' }}
+              tickLine={false}
+              axisLine={{ stroke: '#e5e7eb' }}
               interval="preserveStartEnd"
               minTickGap={20}
             />
-            <YAxis allowDecimals={false} />
-            <Tooltip />
-            <Line
+            <YAxis
+              allowDecimals={false}
+              tick={{ fontSize: 12, fill: '#6b7280' }}
+              tickLine={false}
+              axisLine={{ stroke: '#e5e7eb' }}
+            />
+            <Tooltip content={<CustomTooltip />} />
+            <Area
               type="monotone"
               dataKey="events"
-              stroke="#8884d8"
+              stroke="#ef4444"
               strokeWidth={2}
-              dot={{ fill: "#8884d8" }}
+              fillOpacity={1}
+              fill="url(#colorEvents)"
               isAnimationActive={false}
+              dot={({ cx, cy, payload }) => {
+                const intensity = payload.events / maxEvents;
+                return (
+                  <circle
+                    cx={cx}
+                    cy={cy}
+                    r={4}
+                    fill={intensity > 0.7 ? "#ef4444" : "#fca5a5"}
+                    stroke="#ef4444"
+                    strokeWidth={2}
+                  />
+                );
+              }}
             />
-          </LineChart>
+          </AreaChart>
         </ResponsiveContainer>
       </CardContent>
     </Card>
