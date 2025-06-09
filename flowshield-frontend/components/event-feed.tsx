@@ -67,16 +67,16 @@ export function EventFeed({ events, onEventClick }: EventFeedProps) {
               key={event.id}
               onClick={() => handleEventClick(event)}
               className={`p-4 bg-white rounded-lg shadow-sm border transition-all cursor-pointer group ${selectedEventId === event.id
-                  ? "border-blue-200 shadow-md bg-blue-50"
-                  : "border-gray-100 hover:shadow-md hover:border-blue-100"
+                ? "border-blue-200 shadow-md bg-blue-50"
+                : "border-gray-100 hover:shadow-md hover:border-blue-100"
                 }`}
             >
               <div className="flex items-start justify-between">
                 <div className="space-y-1">
                   <div className="flex items-center gap-2">
                     <span className={`transition-colors ${selectedEventId === event.id
-                        ? "text-blue-500"
-                        : "text-gray-400 group-hover:text-blue-500"
+                      ? "text-blue-500"
+                      : "text-gray-400 group-hover:text-blue-500"
                       }`}>
                       {event.type === "earthquake" ? (
                         <Zap className="h-4 w-4" />
@@ -85,8 +85,8 @@ export function EventFeed({ events, onEventClick }: EventFeedProps) {
                       )}
                     </span>
                     <span className={`text-sm font-medium transition-colors ${selectedEventId === event.id
-                        ? "text-blue-600"
-                        : "text-gray-900 group-hover:text-blue-600"
+                      ? "text-blue-600"
+                      : "text-gray-900 group-hover:text-blue-600"
                       }`}>
                       {event.type === "earthquake" ? "Earthquake" : "Fire"}
                     </span>
