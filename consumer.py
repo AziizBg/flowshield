@@ -46,89 +46,24 @@ class StreamingConfig:
         self.FIRE_TOPIC = os.getenv('FIRE_TOPIC', 'fires')
         
         # Storage configuration
-        self.OUTPUT_MODE = os.getenv('OUTPUT_MODE', 'console')  # console, json, parquet, hbase_rest
+        self.OUTPUT_MODE = os.getenv('OUTPUT_MODE', 'hbase_rest')  # Changed default to hbase_rest
         self.OUTPUT_PATH = os.getenv('OUTPUT_PATH', '/tmp/flowshield_output')
-        self.HBASE_REST_URL = os.getenv('HBASE_REST_URL', 'http://hadoop-master:8080')
+        self.HBASE_REST_URL = os.getenv('HBASE_REST_URL', 'http://localhost:8080')  # Updated default HBase URL
         
         # Processing configuration
         self.CHECKPOINT_DIR = os.getenv('CHECKPOINT_DIR', './spark_checkpoints')
-        self.PROCESSING_TIME = os.getenv('PROCESSING_TIME', '60 seconds')  # Increased to 60 seconds
+        self.PROCESSING_TIME = os.getenv('PROCESSING_TIME', '60 seconds')
         self.WATERMARK_THRESHOLD = os.getenv('WATERMARK_THRESHOLD', '2 hours')
-        self.BATCH_SIZE = int(os.getenv('BATCH_SIZE', '500'))  # Reduced batch size
-        self.MAX_RECORDS_PER_TRIGGER = int(os.getenv('MAX_RECORDS_PER_TRIGGER', '1000'))  # Reduced max records
-
-class HBaseRestClient:
-    """Simple HBase REST API client"""
-    
-    def __init__(self, base_url):
-        self.base_url = base_url.rstrip('/')
+        self.BATCH_SIZE = int(os.getenv('BATCH_SIZE', '500'))
+        self.MAX_RECORDS_PER_TRIGGER = int(os.getenv('MAX_RECORDS_PER_TRIGGER', '1000'))
         
-    def write_row(self, table_name, row_key, data):
-        """Write a single row to HBase via REST API"""
-        try:
-            url = f"{self.base_url}/{table_name}/{row_key}"
-            
-            # Convert data to HBase REST format
-            cells = []
-            for key, value in data.items():
-                if value is not None:
-                    cells.append({
-                        "column": base64.b64encode(f"info:{key}".encode()).decode(),
-                        "timestamp": int(time.time() * 1000),
-                        "$": base64.b64encode(str(value).encode()).decode()
-                    })
-            
-            payload = {
-                "Row": [{
-                    "key": base64.b64encode(row_key.encode()).decode(),
-                    "Cell": cells
-                }]
-            }
-            
-            response = requests.post(
-                url, 
-                json=payload, 
-                headers={"Content-Type": "application/json"},
-                timeout=10
-            )
-            
-            return response.status_code in [200, 201]
-            
-        except Exception as e:
-            logger.error(f"Failed to write to HBase REST: {str(e)}")
-            return False
-
-class GeoCoder:
-    """Geocoding utility class with caching"""
-    
-    def __init__(self):
-        self.geolocator = Nominatim(user_agent="flowshield")
-        self.cache = {}
-    
-    @lru_cache(maxsize=1000)
-    def get_location_info(self, lat: float, lon: float) -> tuple:
-        """Get city and country from coordinates with caching"""
-        try:
-            location = self.geolocator.reverse(f"{lat}, {lon}", language='en')
-            if location:
-                address = location.raw.get('address', {})
-                city = address.get('city') or address.get('town') or address.get('village') or "Unknown"
-                country = address.get('country') or "Unknown"
-                return city, country
-        except (GeocoderTimedOut, GeocoderServiceError) as e:
-            logger.warning(f"Geocoding failed for coordinates ({lat}, {lon}): {str(e)}")
-        return "Unknown", "Unknown"
-
-class AlertManager:
-    """Manages alerting functionality for events"""
-    
-    def __init__(self):
-        self.smtp_server = os.getenv('SMTP_SERVER', 'smtp.gmail.com')
-        self.smtp_port = int(os.getenv('SMTP_PORT', '587'))
-        self.alert_email = os.getenv('ALERT_EMAIL')
-        self.alert_email_password = os.getenv('ALERT_EMAIL_PASSWORD')
-        self.alert_recipient = os.getenv('ALERT_RECIPIENT')
-        self.webhook_url = os.getenv('ALERT_WEBHOOK_URL')
+        # Alert configuration
+        self.SMTP_SERVER = os.getenv('SMTP_SERVER', 'smtp.gmail.com')
+        self.SMTP_PORT = int(os.getenv('SMTP_PORT', '587'))
+        self.ALERT_EMAIL = os.getenv('ALERT_EMAIL', 'your-email@gmail.com')  # Update this
+        self.ALERT_EMAIL_PASSWORD = os.getenv('ALERT_EMAIL_PASSWORD', 'your-app-password')  # Update this
+        self.ALERT_RECIPIENT = os.getenv('ALERT_RECIPIENT', 'recipient@example.com')  # Update this
+        self.ALERT_WEBHOOK_URL = os.getenv('ALERT_WEBHOOK_URL', '')  # Update this if using webhooks
         
         # Alert thresholds - including low levels for testing
         self.earthquake_thresholds = {
@@ -147,6 +82,146 @@ class AlertManager:
         # Reduced alert cooldown for testing (1 minute instead of 5)
         self.alert_cooldown = 60  # 1 minute
         self.last_alert_time = {}
+
+class HBaseRestClient:
+    """Simple HBase REST API client"""
+    
+    def __init__(self, base_url):
+        self.base_url = base_url.rstrip('/')
+        logger.info(f"Initializing HBase REST client with URL: {self.base_url}")
+        
+    def write_row(self, table_name, row_key, data):
+        """Write a single row to HBase via REST API"""
+        try:
+            url = f"{self.base_url}/{table_name}/{row_key}"
+            logger.debug(f"Writing to HBase URL: {url}")
+            
+            # Convert data to HBase REST format
+            cells = []
+            for key, value in data.items():
+                if value is not None:
+                    cells.append({
+                        "column": base64.b64encode(f"info:{key}".encode()).decode(),
+                        "timestamp": int(time.time() * 1000),
+                        "$": base64.b64encode(str(value).encode()).decode()
+                    })
+            
+            payload = {
+                "Row": [{
+                    "key": base64.b64encode(row_key.encode()).decode(),
+                    "Cell": cells
+                }]
+            }
+            
+            logger.debug(f"Sending payload to HBase: {json.dumps(payload)}")
+            
+            response = requests.post(
+                url, 
+                json=payload, 
+                headers={"Content-Type": "application/json"},
+                timeout=10
+            )
+            
+            if response.status_code in [200, 201]:
+                logger.debug(f"Successfully wrote row {row_key} to table {table_name}")
+                return True
+            else:
+                logger.error(f"Failed to write to HBase. Status code: {response.status_code}, Response: {response.text}")
+                return False
+            
+        except requests.exceptions.ConnectionError as e:
+            logger.error(f"Connection error while writing to HBase: {str(e)}")
+            return False
+        except requests.exceptions.Timeout as e:
+            logger.error(f"Timeout while writing to HBase: {str(e)}")
+            return False
+        except Exception as e:
+            logger.error(f"Unexpected error while writing to HBase: {str(e)}")
+            return False
+
+class GeoCoder:
+    """Geocoding utility class with caching and retry logic"""
+    
+    def __init__(self):
+        self.geolocator = Nominatim(user_agent="flowshield")
+        self.cache = {}
+        self.max_retries = 3
+        self.timeout = 10  # 10 seconds timeout
+    
+    @lru_cache(maxsize=1000)
+    def get_location_info(self, lat: float, lon: float) -> tuple:
+        """Get city and country from coordinates with caching and retry logic"""
+        for attempt in range(self.max_retries):
+            try:
+                location = self.geolocator.reverse(
+                    f"{lat}, {lon}", 
+                    language='en',
+                    timeout=self.timeout
+                )
+                if location:
+                    address = location.raw.get('address', {})
+                    city = address.get('city') or address.get('town') or address.get('village') or "Unknown"
+                    country = address.get('country') or "Unknown"
+                    return city, country
+            except (GeocoderTimedOut, GeocoderServiceError) as e:
+                if attempt < self.max_retries - 1:
+                    time.sleep(1)  # Wait 1 second before retrying
+                    continue
+                logger.warning(f"Geocoding failed for coordinates ({lat}, {lon}) after {self.max_retries} attempts: {str(e)}")
+            except Exception as e:
+                logger.error(f"Unexpected error during geocoding for coordinates ({lat}, {lon}): {str(e)}")
+                break
+        
+        return "Unknown", "Unknown"
+
+# Create a singleton instance of GeoCoder
+geocoder = GeoCoder()
+
+# Register the UDF using the singleton instance's method
+get_location = udf(geocoder.get_location_info, StructType([
+    StructField("city", StringType(), True),
+    StructField("country", StringType(), True)
+]))
+
+class AlertManager:
+    """Manages alerting functionality for events"""
+    
+    def __init__(self):
+        self.smtp_server = os.getenv('SMTP_SERVER', 'smtp.gmail.com')
+        self.smtp_port = int(os.getenv('SMTP_PORT', '587'))
+        self.alert_email = os.getenv('ALERT_EMAIL')
+        self.alert_email_password = os.getenv('ALERT_EMAIL_PASSWORD')
+        self.alert_recipient = os.getenv('ALERT_RECIPIENT')
+        self.webhook_url = os.getenv('ALERT_WEBHOOK_URL')
+        
+        # Alert thresholds
+        self.earthquake_thresholds = {
+            'Low': 2.0,
+            'Moderate': 4.0,
+            'High': 6.0,
+            'Extreme': 7.0
+        }
+        self.fire_thresholds = {
+            'Low': 1.0,
+            'Moderate': 5.0,
+            'High': 50.0,
+            'Extreme': 100.0
+        }
+        
+        self.alert_cooldown = 60  # 1 minute
+        self.last_alert_time = {}
+        
+        # Validate email configuration
+        if not all([self.alert_email, self.alert_email_password, self.alert_recipient]):
+            logger.warning("Email alert configuration is incomplete. Email alerts will be disabled.")
+        else:
+            logger.info("Email alert configuration is complete.")
+        
+        # Validate webhook configuration
+        if not self.webhook_url:
+            logger.warning("Webhook URL not configured. Webhook alerts will be disabled.")
+        else:
+            logger.info("Webhook alert configuration is complete.")
     
     def should_alert(self, event_type: str, severity: str, value: float) -> bool:
         """Determine if an alert should be sent based on severity and cooldown"""
@@ -156,6 +231,7 @@ class AlertManager:
         # Check if we're past the cooldown period
         if alert_key in self.last_alert_time:
             if current_time - self.last_alert_time[alert_key] < self.alert_cooldown:
+                logger.debug(f"Alert {alert_key} is in cooldown period")
                 return False
         
         # Check if the event exceeds the threshold
@@ -163,11 +239,13 @@ class AlertManager:
             threshold = self.earthquake_thresholds.get(severity)
             if threshold and value >= threshold:
                 self.last_alert_time[alert_key] = current_time
+                logger.info(f"Earthquake alert triggered: {severity} (magnitude {value})")
                 return True
         elif event_type == 'fire':
             threshold = self.fire_thresholds.get(severity)
             if threshold and value >= threshold:
                 self.last_alert_time[alert_key] = current_time
+                logger.info(f"Fire alert triggered: {severity} (FRP {value})")
                 return True
         
         return False
@@ -247,41 +325,6 @@ class AlertManager:
         if self.should_alert(event_type, severity, value):
             self.send_email_alert(event_type, severity, value, location)
             self.send_webhook_alert(event_type, severity, value, location)
-
-# Create a simple geocoding function
-def get_location_info(lat: float, lon: float) -> tuple:
-    """Get city and country from coordinates with retry logic"""
-    max_retries = 3
-    timeout = 10  # 10 seconds timeout
-    
-    for attempt in range(max_retries):
-        try:
-            geolocator = Nominatim(
-                user_agent="flowshield",
-                timeout=timeout
-            )
-            location = geolocator.reverse(f"{lat}, {lon}", language='en')
-            if location:
-                address = location.raw.get('address', {})
-                city = address.get('city') or address.get('town') or address.get('village') or "Unknown"
-                country = address.get('country') or "Unknown"
-                return city, country
-        except (GeocoderTimedOut, GeocoderServiceError) as e:
-            if attempt < max_retries - 1:
-                time.sleep(1)  # Wait 1 second before retrying
-                continue
-            logger.warning(f"Geocoding failed for coordinates ({lat}, {lon}) after {max_retries} attempts: {str(e)}")
-        except Exception as e:
-            logger.error(f"Unexpected error during geocoding for coordinates ({lat}, {lon}): {str(e)}")
-            break
-    
-    return "Unknown", "Unknown"
-
-# Register the UDF
-get_location = udf(get_location_info, StructType([
-    StructField("city", StringType(), True),
-    StructField("country", StringType(), True)
-]))
 
 class DataProcessor:
     """Main data processing class"""
