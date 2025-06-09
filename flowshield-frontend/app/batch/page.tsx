@@ -3,7 +3,7 @@
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Clock, AlertTriangle, Calendar, MapPin, BarChart2, Globe, Filter, ChevronDown, ChevronUp, Loader2 } from "lucide-react"
 import Link from "next/link"
-import { Header } from "../components/dashboard/Header"
+import { Header } from "@/app/components/dashboard/Header"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Input } from "@/components/ui/input"
@@ -14,6 +14,7 @@ import { Badge } from "@/components/ui/badge"
 import { CorrelationsTab } from "../components/dashboard/CorrelationsTab"
 import { AnomaliesTab } from "@/app/components/dashboard/AnomaliesTab"
 import { HotspotsTab } from "@/app/components/dashboard/HotspotsTab"
+import { VulnerabilityTab } from "@/app/components/dashboard/VulnerabilityTab"
 
 // Types for our mock data
 interface AnomalyEvent {
@@ -262,17 +263,7 @@ export default function BatchDashboard() {
                     </TabsContent>
 
                     <TabsContent value="vulnerability">
-                        <Card>
-                            <CardHeader>
-                                <CardTitle>Country Vulnerability Index</CardTitle>
-                                <CardDescription>
-                                    Analysis of country-level vulnerability to different types of disasters
-                                </CardDescription>
-                            </CardHeader>
-                            <CardContent>
-                                <p className="text-sm text-muted-foreground">Coming soon...</p>
-                            </CardContent>
-                        </Card>
+                        <VulnerabilityTab />
                     </TabsContent>
 
                     <TabsContent value="summaries">
